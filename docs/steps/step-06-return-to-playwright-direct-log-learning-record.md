@@ -130,7 +130,23 @@ net::ERR_CONNECTION_CLOSED
 chrome-error://chromewebdata/
 ```
 
-当前服务器仍无法访问目标日志静态服务器。确认是否在 `10.57.159.149` / `tl813-agent` 上运行，而不是原来不可访问的 Debian 服务器。
+如果手工 full Chrome 可以打开，但 CLI 输出中显示使用的是 `chromium-headless-shell`，说明失败点可能是 Playwright 默认 headless shell 与手工 Chrome 的 TLS/浏览器行为差异。`extract-log-url` 已新增 `--browser-channel`，可改用系统 Chrome/Chromium 验证：
+
+```bash
+PYTHONPATH=agent python -m triage_agent extract-log-url \
+  --browser-channel chrome \
+  --url "https://10.70.226.9/logs/WebTrigger/SBTS26R2/SBTS26R2_ENB_0000_000406_000000/4654/CRT/VRF_HAZ_T06/7_5_UTE5G402T273/artifact/quicktest/retry-0/CB010887_cases/log.html"
+```
+
+如果系统安装的是 Chromium：
+
+```bash
+PYTHONPATH=agent python -m triage_agent extract-log-url \
+  --browser-channel chromium \
+  --url "https://10.70.226.9/logs/WebTrigger/SBTS26R2/SBTS26R2_ENB_0000_000406_000000/4654/CRT/VRF_HAZ_T06/7_5_UTE5G402T273/artifact/quicktest/retry-0/CB010887_cases/log.html"
+```
+
+如果这些仍失败，才说明当前服务器或当前浏览器运行方式仍无法访问目标日志静态服务器。确认是否在 `10.57.159.149` / `tl813-agent` 上运行，而不是原来不可访问的 Debian 服务器。
 
 ```text
 status = session_expired

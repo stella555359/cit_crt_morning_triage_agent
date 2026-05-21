@@ -363,6 +363,29 @@ def _read_log_by_clicking_link(
         return None, None, str(exc)
 
 
+def _browser_runtime_info(args: argparse.Namespace) -> dict[str, Any]:
+    return {
+        "headless": not args.headed,
+        "browser_channel": getattr(args, "browser_channel", None) or "playwright-default",
+    }
+
+
+def _launch_log_browser_context(playwright: Any, profile_dir: str, args: argparse.Namespace) -> Any:
+    launch_args = [
+        "--ignore-certificate-errors",
+        "--allow-running-insecure-content",
+    ]
+    launch_options: dict[str, Any] = {
+        "headless": not args.headed,
+        "ignore_https_errors": True,
+        "viewport": {"width": 1800, "height": 1200},
+        "args": launch_args,
+    }
+    if getattr(args, "browser_channel", None):
+        launch_options["channel"] = args.browser_channel
+    return playwright.chromium.launch_persistent_context(profile_dir, **launch_options)
+
+
 def command_extract_log_url(args: argparse.Namespace) -> None:
     try:
         from playwright.sync_api import sync_playwright
@@ -376,12 +399,7 @@ def command_extract_log_url(args: argparse.Namespace) -> None:
     timeout_ms = args.timeout_seconds * 1000
 
     with sync_playwright() as playwright:
-        context = playwright.chromium.launch_persistent_context(
-            config.portal.profile_dir,
-            headless=not args.headed,
-            ignore_https_errors=True,
-            viewport={"width": 1800, "height": 1200},
-        )
+        context = _launch_log_browser_context(playwright, config.portal.profile_dir, args)
         try:
             body_text, diagnostics, errors = _read_log_body_with_fallback(
                 context,
@@ -398,6 +416,7 @@ def command_extract_log_url(args: argparse.Namespace) -> None:
             {
                 "url": args.url,
                 "status": "navigation_failed",
+                **_browser_runtime_info(args),
                 "errors": errors,
             }
         )
@@ -407,6 +426,7 @@ def command_extract_log_url(args: argparse.Namespace) -> None:
         {
             "url": args.url,
             "status": "ok",
+            **_browser_runtime_info(args),
             **(diagnostics or {}),
             "navigation_errors": errors,
             "body_text_length": len(body_text),
@@ -430,12 +450,7 @@ def command_extract_detail_log(args: argparse.Namespace) -> None:
     timeout_ms = args.timeout_seconds * 1000
 
     with sync_playwright() as playwright:
-        context = playwright.chromium.launch_persistent_context(
-            config.portal.profile_dir,
-            headless=not args.headed,
-            ignore_https_errors=True,
-            viewport={"width": 1800, "height": 1200},
-        )
+        context = _launch_log_browser_context(playwright, config.portal.profile_dir, args)
         try:
             detail_page = context.new_page()
             response = detail_page.goto(args.url, wait_until="domcontentloaded", timeout=timeout_ms)
@@ -454,6 +469,7 @@ def command_extract_detail_log(args: argparse.Namespace) -> None:
                 _print_json(
                     {
                         "status": "session_expired",
+                        **_browser_runtime_info(args),
                         **detail_diagnostics,
                         "reason": "Reporting Portal redirected to Microsoft SSO login page.",
                         "log_link_count": 0,
@@ -473,6 +489,7 @@ def command_extract_detail_log(args: argparse.Namespace) -> None:
                 _print_json(
                     {
                         "status": "no_log_link_found",
+                        **_browser_runtime_info(args),
                         **detail_diagnostics,
                     }
                 )
@@ -508,6 +525,7 @@ def command_extract_detail_log(args: argparse.Namespace) -> None:
         _print_json(
             {
                 "status": "log_navigation_failed",
+                **_browser_runtime_info(args),
                 **detail_diagnostics,
                 "selected_log_url": log_url,
                 "errors": errors,
@@ -520,6 +538,7 @@ def command_extract_detail_log(args: argparse.Namespace) -> None:
     _print_json(
         {
             "status": "ok",
+            **_browser_runtime_info(args),
             **detail_diagnostics,
             "selected_log_url": log_url,
             **(log_diagnostics or {}),
@@ -863,6 +882,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     extract_url_parser.add_argument("--headed", action="store_true", help="Run Chromium in headed mode.")
     extract_url_parser.add_argument(
+        "--browser-channel",
+        help=(
+            "Optional Playwright browser channel, such as chrome or chromium. "
+            "Use this when default chromium-headless-shell cannot open an internal log URL."
+        ),
+    )
+    extract_url_parser.add_argument(
         "--no-http-fallback",
         action="store_true",
         help="Disable automatic https to http fallback for internal log URLs.",
@@ -899,6 +925,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum log-like links to print from the detail page. Defaults to 20.",
     )
     detail_log_parser.add_argument("--headed", action="store_true", help="Run Chromium in headed mode.")
+    detail_log_parser.add_argument(
+        "--browser-channel",
+        help=(
+            "Optional Playwright browser channel, such as chrome or chromium. "
+            "Use this when default chromium-headless-shell cannot open an internal log URL."
+        ),
+    )
     detail_log_parser.add_argument(
         "--no-http-fallback",
         action="store_true",

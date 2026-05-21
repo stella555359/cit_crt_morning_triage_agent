@@ -524,10 +524,47 @@ ignore_https_errors=True
 
 ```text
 status = navigation_failed
-net::ERR_CERT_AUTHORITY_INVALID
+net::ERR_CONNECTION_CLOSED
 ```
 
-说明当前命令没有走到项目内的 Playwright context，或该服务器的 Chromium/Playwright 版本行为不同，需要优先检查运行的代码版本是否最新。
+并且输出中显示：
+
+```text
+Chrome Headless Shell ... chromium-headless-shell
+```
+
+说明手工 full Chrome 能打开，但 Playwright 默认的 `chromium-headless-shell` 被日志服务器关闭连接。此时改用系统 Chrome/Chromium channel 验证：
+
+```bash
+PYTHONPATH=agent python -m triage_agent extract-log-url \
+  --browser-channel chrome \
+  --url "https://10.70.226.9/logs/WebTrigger/SBTS26R2/SBTS26R2_ENB_0000_000406_000000/4654/CRT/VRF_HAZ_T06/7_5_UTE5G402T273/artifact/quicktest/retry-0/CB010887_cases/log.html"
+```
+
+如果服务器安装的是 Chromium 而不是 Google Chrome，改用：
+
+```bash
+PYTHONPATH=agent python -m triage_agent extract-log-url \
+  --browser-channel chromium \
+  --url "https://10.70.226.9/logs/WebTrigger/SBTS26R2/SBTS26R2_ENB_0000_000406_000000/4654/CRT/VRF_HAZ_T06/7_5_UTE5G402T273/artifact/quicktest/retry-0/CB010887_cases/log.html"
+```
+
+如果服务器有图形环境，也可以直接验证 headed full Chrome：
+
+```bash
+PYTHONPATH=agent python -m triage_agent extract-log-url \
+  --headed \
+  --browser-channel chrome \
+  --url "https://10.70.226.9/logs/WebTrigger/SBTS26R2/SBTS26R2_ENB_0000_000406_000000/4654/CRT/VRF_HAZ_T06/7_5_UTE5G402T273/artifact/quicktest/retry-0/CB010887_cases/log.html"
+```
+
+预期成功时输出中会显示：
+
+```text
+browser_channel = chrome 或 chromium
+status = ok
+body_text_length > 0
+```
 
 因此后续实现分为两条路线：
 
