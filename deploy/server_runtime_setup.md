@@ -503,67 +503,58 @@ Debian 服务器不能打开同一个 Test Logs 链接
 
 当 Debian 无法直接打开 `10.70.226.9` 的 `log.html` 时，改为验证 Reporting Portal detail 页面是否提供可下载的 zip / artifact / output 文件入口。
 
-第一步只检查候选入口，不点击下载：
-
-```bash
-PYTHONPATH=agent python -m triage_agent inspect-detail-assets \
-  --url "https://rep-portal.ext.net.nokia.com/reports/test-runs/?test_instance_id=35764397&ordering=-end&end_db=365"
-```
-
-重点看输出：
+早期头脑风暴验证记录中已经确认过 Reporting Portal 的 report download 入口：
 
 ```text
-status
-detail_response_status
-candidate_count
-download_candidate_count
-candidates
-download_candidates
-opened_more
-before_more
-after_more
+https://rep-portal.ext.net.nokia.com/at/test-reports/45873334/download/
 ```
 
-如果 `download_candidate_count > 0`，再尝试点击下载候选：
+曾成功下载：
+
+```text
+suggested filename: robot_report.zip
+saved as: /home/ute/test-report-45873334.zip
+```
+
+因此 Plan B 的方向是直接构造 `/at/test-reports/<report_id>/download/`，不再维护“从 detail 页 DOM 里找下载按钮”的探索代码。
+
+如果已知 test report id，可以直接尝试下载：
 
 ```bash
-PYTHONPATH=agent python -m triage_agent inspect-detail-assets \
-  --attempt-download \
-  --url "https://rep-portal.ext.net.nokia.com/reports/test-runs/?test_instance_id=35764397&ordering=-end&end_db=365"
+PYTHONPATH=agent python -m triage_agent download-report-zip --report-id 45873334
 ```
 
-默认下载保存目录：
+也可以从 URL 中提取 report id：
+
+```bash
+PYTHONPATH=agent python -m triage_agent download-report-zip \
+  --url "https://rep-portal.ext.net.nokia.com/details/test-report/45873334/"
+```
+
+下载默认保存目录：
 
 ```text
 /tmp/cit_crt_morning_triage_agent_downloads
 ```
 
-下载成功时预期输出：
+预期成功输出：
 
 ```text
-download_results.status = downloaded
-download_results.suggested_filename
-download_results.saved_path
+status = ok
+results.status = downloaded
+results.suggested_filename = robot_report.zip
+results.saved_path = /tmp/cit_crt_morning_triage_agent_downloads/robot_report.zip
 ```
-
-如果输出：
-
-```text
-status = session_expired
-```
-
-说明 Reporting Portal 登录态过期，需要先重新 headed 登录，再重新执行 `inspect-detail-assets`。
-
-如果 `download_candidate_count = 0`，说明当前 detail 页面 DOM 中没有直接可见的 zip/download/artifact 入口。下一步需要检查网络请求或 Reporting Portal 是否有隐藏接口。
 
 已验证结果：
 
 ```text
 2026-05-21 16:27
-inspect-detail-assets --attempt-download 点击到的是 Test Logs 链接，不是真正的下载按钮
-download_results 中 3 个 Test Logs 链接均等待 download 事件超时
-原因：第一版 download_candidate 规则过宽，href 中包含 artifact 的 log.html 链接被误判为下载候选
-后续修正：download_candidate 排除 text=Test Logs 或 href 包含 log.html 的候选项
+废弃方向：从 detail 页 DOM 中寻找下载按钮，曾误把 Test Logs 链接当成下载候选
+2026-05-21 16:32
+废弃方向验证：detail 页面没有可见 zip/download/artifact 按钮
+补充发现：初始计划文档中记录过 /at/test-reports/<report_id>/download/ 曾成功下载 robot_report.zip
+最终修正：移除 inspect-detail-assets 相关代码，仅保留 download-report-zip 命令，直接构造并验证 Reporting Portal report zip 下载入口
 ```
 
 ## 常见失败模式

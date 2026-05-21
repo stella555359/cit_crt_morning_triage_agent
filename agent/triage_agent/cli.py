@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from dataclasses import asdict
 from datetime import date
 from enum import Enum
@@ -17,6 +18,9 @@ from .portal_collector import collect_row_links_from_url, filter_rows_for_triage
 from .portal_health import check_portal_session
 from .portal_urls import build_test_runs_url
 from .time_windows import scope_window
+
+
+REPORT_ID_PATTERN = re.compile(r"/details/test-report/(\d+)/|/at/test-reports/(\d+)/|test_report_id=(\d+)")
 
 
 def _json_default(value: Any) -> str:
@@ -130,6 +134,19 @@ def _candidate_log_urls(url: str, allow_http_fallback: bool) -> list[str]:
     return unique_candidates
 
 
+def _extract_report_ids_from_text(value: str) -> list[str]:
+    report_ids: list[str] = []
+    for match in REPORT_ID_PATTERN.finditer(value):
+        report_id = next((group for group in match.groups() if group), None)
+        if report_id and report_id not in report_ids:
+            report_ids.append(report_id)
+    return report_ids
+
+
+def _build_report_download_url(report_id: str) -> str:
+    return f"https://rep-portal.ext.net.nokia.com/at/test-reports/{report_id}/download/"
+
+
 def _read_log_body_with_fallback(
     context: Any,
     url: str,
@@ -197,153 +214,31 @@ def _looks_like_sso_login(url: str, title: str, body_text: str) -> bool:
     )
 
 
-ASSET_CANDIDATE_KEYWORDS = (
-    "download",
-    "zip",
-    "artifact",
-    "archive",
-    "output",
-    "xml",
-    "result",
-    "more",
-)
-DOWNLOAD_CANDIDATE_KEYWORDS = (
-    "download",
-    "zip",
-    "artifact",
-    "archive",
-    "output.xml",
-    "output",
-)
-
-
-def _candidate_blob(item: dict[str, str]) -> str:
-    return " ".join(
-        [
-            item.get("text", ""),
-            item.get("href", ""),
-            item.get("title", ""),
-            item.get("aria_label", ""),
-        ]
-    ).lower()
-
-
-def _matches_keywords(item: dict[str, str], keywords: tuple[str, ...]) -> bool:
-    blob = _candidate_blob(item)
-    return any(keyword in blob for keyword in keywords)
-
-
-def _is_log_page_candidate(item: dict[str, str]) -> bool:
-    blob = _candidate_blob(item)
-    return "test logs" in blob or "log.html" in blob
-
-
-def _extract_clickable_assets(page: Any) -> dict[str, list[dict[str, str]]]:
-    return page.evaluate(
-        """() => {
-            const normalize = value => (value || '').trim();
-            const links = Array.from(document.querySelectorAll('a')).map((element, index) => ({
-                kind: 'link',
-                index: String(index),
-                text: normalize(element.innerText || element.textContent),
-                href: element.href || element.getAttribute('href') || '',
-                title: normalize(element.getAttribute('title')),
-                aria_label: normalize(element.getAttribute('aria-label'))
-            }));
-            const buttons = Array.from(document.querySelectorAll('button, [role="button"]')).map((element, index) => ({
-                kind: 'button',
-                index: String(index),
-                text: normalize(element.innerText || element.textContent),
-                href: '',
-                title: normalize(element.getAttribute('title')),
-                aria_label: normalize(element.getAttribute('aria-label'))
-            }));
-            return { links, buttons };
-        }"""
-    )
-
-
-def _asset_summary(page: Any, max_items: int) -> dict[str, Any]:
-    assets = _extract_clickable_assets(page)
-    all_items = assets["links"] + assets["buttons"]
-    candidates = [item for item in all_items if _matches_keywords(item, ASSET_CANDIDATE_KEYWORDS)]
-    download_candidates = [
-        item
-        for item in candidates
-        if _matches_keywords(item, DOWNLOAD_CANDIDATE_KEYWORDS) and not _is_log_page_candidate(item)
-    ]
-
-    return {
-        "link_count": len(assets["links"]),
-        "button_count": len(assets["buttons"]),
-        "candidate_count": len(candidates),
-        "download_candidate_count": len(download_candidates),
-        "candidates": candidates[:max_items],
-        "download_candidates": download_candidates[:max_items],
-        "links_sample": assets["links"][:max_items],
-        "buttons_sample": assets["buttons"][:max_items],
-    }
-
-
-def _click_asset_candidate(page: Any, item: dict[str, str], timeout_ms: int) -> str | None:
-    selector = "a" if item["kind"] == "link" else 'button, [role="button"]'
-    try:
-        page.locator(selector).nth(int(item["index"])).click(timeout=timeout_ms)
-        return None
-    except Exception as exc:
-        return str(exc)
-
-
-def _open_more_menus(page: Any, timeout_ms: int) -> list[dict[str, str]]:
-    assets = _extract_clickable_assets(page)
-    all_items = assets["links"] + assets["buttons"]
-    more_items = [
-        item
-        for item in all_items
-        if item.get("text", "").strip().lower() == "more"
-        or item.get("aria_label", "").strip().lower() == "more"
-        or item.get("title", "").strip().lower() == "more"
-    ]
-    results: list[dict[str, str]] = []
-    for item in more_items[:3]:
-        error = _click_asset_candidate(page, item, timeout_ms)
-        page.wait_for_timeout(1000)
-        results.append({**item, "click_error": error or ""})
-    return results
-
-
-def _attempt_asset_downloads(
-    page: Any,
-    candidates: list[dict[str, str]],
+def _download_report_zip(
+    context: Any,
+    download_url: str,
     *,
     download_dir: Path,
     timeout_ms: int,
-    max_attempts: int,
-) -> list[dict[str, str]]:
+) -> dict[str, str]:
     download_dir.mkdir(parents=True, exist_ok=True)
-    results: list[dict[str, str]] = []
-
-    for item in candidates[:max_attempts]:
-        selector = "a" if item["kind"] == "link" else 'button, [role="button"]'
-        locator = page.locator(selector).nth(int(item["index"]))
-        try:
-            with page.expect_download(timeout=timeout_ms) as download_info:
-                locator.click(timeout=timeout_ms)
-            download = download_info.value
-            output_path = download_dir / download.suggested_filename
-            download.save_as(str(output_path))
-            results.append(
-                {
-                    **item,
-                    "status": "downloaded",
-                    "suggested_filename": download.suggested_filename,
-                    "saved_path": str(output_path),
-                }
-            )
-        except Exception as exc:
-            results.append({**item, "status": "failed", "error": str(exc)})
-
-    return results
+    page = context.new_page()
+    try:
+        with page.expect_download(timeout=timeout_ms) as download_info:
+            page.goto(download_url, wait_until="domcontentloaded", timeout=timeout_ms)
+        download = download_info.value
+        output_path = download_dir / download.suggested_filename
+        download.save_as(str(output_path))
+        page.close()
+        return {
+            "status": "downloaded",
+            "download_url": download_url,
+            "suggested_filename": download.suggested_filename,
+            "saved_path": str(output_path),
+        }
+    except Exception as exc:
+        page.close()
+        return {"status": "failed", "download_url": download_url, "error": str(exc)}
 
 
 def _read_log_by_clicking_link(
@@ -550,18 +445,25 @@ def command_extract_detail_log(args: argparse.Namespace) -> None:
     )
 
 
-def command_inspect_detail_assets(args: argparse.Namespace) -> None:
+def command_download_report_zip(args: argparse.Namespace) -> None:
     try:
         from playwright.sync_api import sync_playwright
     except ImportError as exc:
         raise RuntimeError(
-            "Playwright is required for inspect-detail-assets. "
+            "Playwright is required for download-report-zip. "
             "Install it with `python -m pip install -r requirements.txt` and `python -m playwright install chromium`."
         ) from exc
 
     config = load_config(args.config)
     timeout_ms = args.timeout_seconds * 1000
     download_dir = Path(args.download_dir)
+
+    report_ids = [args.report_id] if args.report_id else _extract_report_ids_from_text(args.url or "")
+    if not report_ids:
+        raise ValueError(
+            "No report id found. Provide --report-id or a URL containing /details/test-report/<id>/, "
+            "/at/test-reports/<id>/, or test_report_id=<id>."
+        )
 
     with sync_playwright() as playwright:
         context = playwright.chromium.launch_persistent_context(
@@ -572,55 +474,24 @@ def command_inspect_detail_assets(args: argparse.Namespace) -> None:
             viewport={"width": 1800, "height": 1200},
         )
         try:
-            page = context.new_page()
-            response = page.goto(args.url, wait_until="domcontentloaded", timeout=timeout_ms)
-            page.wait_for_timeout(args.wait_seconds * 1000)
-            body_text = page.locator("body").inner_text(timeout=timeout_ms)
-            diagnostics = {
-                "detail_url": args.url,
-                "detail_final_url": page.url,
-                "detail_title": page.title(),
-                "detail_response_status": response.status if response else None,
-                "detail_body_text_length": len(body_text),
-                "detail_body_text_sample": body_text[: args.sample_chars],
-            }
-
-            if _looks_like_sso_login(page.url, page.title(), body_text):
-                _print_json(
-                    {
-                        "status": "session_expired",
-                        **diagnostics,
-                        "reason": "Reporting Portal redirected to Microsoft SSO login page.",
-                    }
-                )
-                return
-
-            before_more = _asset_summary(page, args.max_items)
-            opened_more = _open_more_menus(page, timeout_ms) if not args.no_open_more else []
-            after_more = _asset_summary(page, args.max_items)
-            download_results = []
-
-            if args.attempt_download:
-                download_results = _attempt_asset_downloads(
-                    page,
-                    after_more["download_candidates"],
+            results = [
+                _download_report_zip(
+                    context,
+                    _build_report_download_url(report_id),
                     download_dir=download_dir,
                     timeout_ms=timeout_ms,
-                    max_attempts=args.max_download_attempts,
                 )
+                for report_id in report_ids
+            ]
         finally:
             context.close()
 
     _print_json(
         {
-            "status": "ok",
-            **diagnostics,
-            "opened_more": opened_more,
-            "before_more": before_more,
-            "after_more": after_more,
-            "attempt_download": args.attempt_download,
+            "status": "ok" if any(item["status"] == "downloaded" for item in results) else "failed",
+            "report_ids": report_ids,
             "download_dir": str(download_dir),
-            "download_results": download_results,
+            "results": results,
         }
     )
 
@@ -810,58 +681,31 @@ def build_parser() -> argparse.ArgumentParser:
     )
     detail_log_parser.set_defaults(func=command_extract_detail_log)
 
-    inspect_assets_parser = subparsers.add_parser(
-        "inspect-detail-assets",
-        help="Inspect a Reporting Portal detail page for download/zip/artifact entries.",
+    download_zip_parser = subparsers.add_parser(
+        "download-report-zip",
+        help="Download robot_report.zip from Reporting Portal /at/test-reports/<id>/download/.",
     )
-    inspect_assets_parser.add_argument("--url", required=True, help="Reporting Portal detail URL.")
-    inspect_assets_parser.add_argument(
+    download_zip_parser.add_argument(
+        "--report-id",
+        help="Reporting Portal test report id, for example 45873334.",
+    )
+    download_zip_parser.add_argument(
+        "--url",
+        help="URL containing a report id, such as /details/test-report/<id>/ or /at/test-reports/<id>/download/.",
+    )
+    download_zip_parser.add_argument(
         "--timeout-seconds",
         type=int,
         default=60,
-        help="Navigation, locator, and download timeout. Defaults to 60.",
+        help="Download timeout. Defaults to 60.",
     )
-    inspect_assets_parser.add_argument(
-        "--wait-seconds",
-        type=int,
-        default=10,
-        help="Extra wait after domcontentloaded before inspecting the page. Defaults to 10.",
-    )
-    inspect_assets_parser.add_argument(
-        "--sample-chars",
-        type=int,
-        default=500,
-        help="Number of detail page text characters to include for debugging. Defaults to 500.",
-    )
-    inspect_assets_parser.add_argument(
-        "--max-items",
-        type=int,
-        default=30,
-        help="Maximum candidates, links, and buttons to print. Defaults to 30.",
-    )
-    inspect_assets_parser.add_argument(
-        "--no-open-more",
-        action="store_true",
-        help="Do not click More menus before collecting candidates.",
-    )
-    inspect_assets_parser.add_argument(
-        "--attempt-download",
-        action="store_true",
-        help="Click download-like candidates and save downloads.",
-    )
-    inspect_assets_parser.add_argument(
-        "--max-download-attempts",
-        type=int,
-        default=3,
-        help="Maximum download-like candidates to click when --attempt-download is used. Defaults to 3.",
-    )
-    inspect_assets_parser.add_argument(
+    download_zip_parser.add_argument(
         "--download-dir",
         default="/tmp/cit_crt_morning_triage_agent_downloads",
         help="Directory for captured downloads. Defaults to /tmp/cit_crt_morning_triage_agent_downloads.",
     )
-    inspect_assets_parser.add_argument("--headed", action="store_true", help="Run Chromium in headed mode.")
-    inspect_assets_parser.set_defaults(func=command_inspect_detail_assets)
+    download_zip_parser.add_argument("--headed", action="store_true", help="Run Chromium in headed mode.")
+    download_zip_parser.set_defaults(func=command_download_report_zip)
 
     collect_parser = subparsers.add_parser(
         "collect-links",
