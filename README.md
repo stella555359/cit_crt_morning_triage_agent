@@ -4,7 +4,9 @@
 
 This project builds an internal morning triage assistant for daily CIT/CRT Robot Framework regression analysis.
 
-The agent will run on the Debian 13 server used by the existing automation environment. It will use a persistent Playwright browser session to access `reporting_portal`, collect `not analyzed` Robot case results, open the related `log.html`, extract failed case evidence, classify likely failure categories, and expose a Morning Report through a web UI.
+The agent will run on the Debian 13 server used by the existing automation environment. The current preferred source is the nightly result email: parse report/log download links from the email, download the related package, extract failed case evidence, classify likely failure categories, and expose a Morning Report through a web UI.
+
+The earlier `reporting_portal` browser route remains as a fallback and validation path.
 
 ## Scope
 
@@ -87,6 +89,8 @@ python -m triage_agent urls
 python -m triage_agent health
 python -m triage_agent collect-links
 python -m triage_agent extract-log --file saved-log.html
+python -m triage_agent extract-email-links --file samples/result-mail.eml
+python -m triage_agent download-email-reports --file samples/result-mail.eml --extract-json
 ```
 
 The extractor output includes `full_name`, `tags`, `status`, `case_message`, `failed_keyword`, `failure_text`, `keyword_chain`, and a first-pass rule classification.

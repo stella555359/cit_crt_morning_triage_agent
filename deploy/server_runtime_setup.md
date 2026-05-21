@@ -592,6 +592,9 @@ download-report-zip 首次验证：Playwright 返回 Page.goto: Download is star
 2026-05-21
 下载解压结果：zip 中只有 reporting_portal.json
 结论：Plan B 下载到的是结构化 Reporting Portal JSON 摘要，不是完整 log.html/output.xml；新增 extract-report-json 命令，用于判断该 JSON 是否包含 failed case 的 fail_message/steps/exception 证据
+2026-05-21 16:54
+extract-report-json 验证 docs/reporting_portal.json：suite_count=1，test_case_count=22，failed_case_count=0
+结论：当前样例 zip/report JSON 是全 passed 摘要，不能验证失败证据解析；需要用实际 not analyzed/failed 行对应的 report id 下载 zip 再验证
 ```
 
 ## 常见失败模式
@@ -779,3 +782,70 @@ PYTHONPATH=agent python -m triage_agent collect-links
 - `PYTHONPATH=agent python -m triage_agent urls` 是否输出 6 个 scope？
 - `health` 是否能识别当前 SSO 登录态？
 - `collect-links` 是否能从 filtered page 取到 `Test Logs` 链接？
+
+## 邮件结果源验证
+
+如果 Reporting Portal SSO 登录态频繁失效，或 Debian 服务器无法打开 `log.html`，优先验证 nightly 结果邮件里的下载链接。
+
+先把一封真实结果邮件导出为 `.eml`，放到：
+
+```text
+/opt/cit_crt_morning_triage_agent/samples/result-mail.eml
+```
+
+解析邮件链接：
+
+```bash
+cd /opt/cit_crt_morning_triage_agent
+source .venv/bin/activate
+PYTHONPATH=agent python -m triage_agent extract-email-links \
+  --file samples/result-mail.eml \
+  --include-all-links
+```
+
+预期结果：
+
+```text
+subject 不为空
+link_count > 0
+download_candidates / portal_links / jenkins_links 至少有一个不为空
+如果是 Outlook Safe Links，normalized_url 应显示真实目标 URL
+```
+
+尝试从邮件链接下载 report/log 包，并解析 `reporting_portal.json`：
+
+```bash
+PYTHONPATH=agent python -m triage_agent download-email-reports \
+  --file samples/result-mail.eml \
+  --max-downloads 1 \
+  --extract-json
+```
+
+预期结果：
+
+```text
+download_url_count > 0
+results.status = downloaded
+results.saved_path 位于 /tmp/cit_crt_morning_triage_agent_downloads
+如果下载包里有 reporting_portal.json，report_json_results 会输出 suite_count / test_case_count / failed_case_count
+```
+
+常见失败：
+
+```text
+download_candidates = []
+```
+
+邮件里可能没有直接下载链接，先查看 `all_links`。
+
+```text
+results.status = failed
+```
+
+下载链接可能已过期、需要交互式 SSO，或 Debian 服务器无法访问目标地址。
+
+```text
+failed_case_count = 0
+```
+
+样例邮件对应的结果可能全 passed，需要换实际 `not analyzed / failed` 结果邮件验证。

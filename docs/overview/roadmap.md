@@ -6,16 +6,27 @@
 
 ## Main Goal
 
-Build a Debian-hosted internal assistant that automates the repetitive part of daily CIT/CRT Robot result triage:
+Build a Debian-hosted internal assistant that automates the repetitive part of daily CIT/CRT Robot result triage.
+
+当前主路线调整为“邮件结果源优先，Reporting Portal 页面扫描保留为备用验证路线”：
+
+```text
+daily result email
+-> report/log download links
+-> robot_report.zip / reporting_portal.json
+-> failed case summary extraction
+-> first-pass classification
+-> Web Morning Report
+-> human review
+```
+
+原始 Reporting Portal 页面路线仍保留：
 
 ```text
 reporting_portal filtered page
 -> not analyzed Robot cases
 -> Test Logs / log.html
 -> failed case message and failed keyword extraction
--> first-pass classification
--> Web Morning Report
--> human review
 ```
 
 ## Current Status
@@ -36,11 +47,14 @@ Added finding:
 - Persistent profile works only while the SSO/MSAL session is valid.
 - The session can expire and leave the page stuck at `Loading...`.
 - The agent must perform a login health check before each scan and stop with a clear re-login handoff if the session is expired.
+- Debian 服务器无法稳定打开部分 Windows 可访问的 `10.70.226.9` `log.html`。
+- 邮件里如果包含 nightly result 的下载链接，应优先从邮件解析下载入口，减少对 Reporting Portal 页面和 SSO 持久登录态的依赖。
 
 Not yet validated:
 
 - Stable extraction of case-level `Status: FAIL`, `Message`, failed keyword, failure text, and keyword chain from `log.html`.
 - Real server execution of the first CLI commands added under `agent/triage_agent`.
+- 从真实 nightly 结果邮件 `.eml/.msg` 中提取下载链接，并在 Debian 上成功下载 report/log 包。
 
 Implemented locally in the project:
 
@@ -53,10 +67,41 @@ agent/triage_agent/portal_health.py
 agent/triage_agent/portal_collector.py
 agent/triage_agent/log_extractor.py
 agent/triage_agent/classifier.py
+agent/triage_agent/email_collector.py
 agent/triage_agent/cli.py
 ```
 
 ## Execution Order
+
+### Phase 0.5: Email Result Source Validation
+
+先验证一封真实 nightly 结果邮件是否能作为更稳定的数据入口。
+
+Initial commands:
+
+```text
+python -m triage_agent extract-email-links --file samples/result-mail.eml
+python -m triage_agent download-email-reports --file samples/result-mail.eml --extract-json
+```
+
+Expected behavior:
+
+```text
+extract subject / sent_at / download_candidates / portal_links / jenkins_links
+unwrap Outlook Safe Links when present
+convert Reporting Portal report ids to /at/test-reports/<id>/download/
+download candidate report/log packages with the existing Playwright profile
+parse reporting_portal.json when the downloaded package contains it
+```
+
+Common failure modes:
+
+```text
+email contains only a Reporting Portal page link and no download link
+download link still requires interactive SSO
+.msg can only be parsed best-effort unless optional extract_msg is installed
+downloaded zip contains only passed cases, so failed evidence cannot be validated
+```
 
 ### Phase 1: Login Health Check
 

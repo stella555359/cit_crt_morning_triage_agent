@@ -13,6 +13,7 @@ from urllib.parse import urlparse, urlunparse
 
 from .classifier import classify_failed_case
 from .config import DEFAULT_CONFIG_PATH, load_config
+from .email_collector import parse_email_file
 from .log_extractor import extract_failed_cases_from_text
 from .models import PortalSessionStatus
 from .portal_collector import collect_row_links_from_url, filter_rows_for_triage
@@ -148,8 +149,8 @@ def _is_failed_reporting_case(test_case: dict[str, Any]) -> bool:
     return result not in {"", "passed", "pass"} or has_failure_text or bool(failure_fields["steps"])
 
 
-def command_extract_report_json(args: argparse.Namespace) -> None:
-    data, source = _load_reporting_portal_json(args.file, args.encoding)
+def _reporting_portal_json_summary(path: str | Path, encoding: str, max_cases: int) -> dict[str, Any]:
+    data, source = _load_reporting_portal_json(path, encoding)
     suites = data if isinstance(data, list) else [data]
     failed_cases: list[dict[str, Any]] = []
     total_cases = 0
@@ -161,15 +162,17 @@ def command_extract_report_json(args: argparse.Namespace) -> None:
             if _is_failed_reporting_case(test_case):
                 failed_cases.append(_case_failure_fields(test_case))
 
-    _print_json(
-        {
-            "source": source,
-            "suite_count": len(suites),
-            "test_case_count": total_cases,
-            "failed_case_count": len(failed_cases),
-            "failed_cases": failed_cases[: args.max_cases],
-        }
-    )
+    return {
+        "source": source,
+        "suite_count": len(suites),
+        "test_case_count": total_cases,
+        "failed_case_count": len(failed_cases),
+        "failed_cases": failed_cases[:max_cases],
+    }
+
+
+def command_extract_report_json(args: argparse.Namespace) -> None:
+    _print_json(_reporting_portal_json_summary(args.file, args.encoding, args.max_cases))
 
 
 def _failed_case_payload(log_text: str) -> list[dict[str, Any]]:
@@ -582,6 +585,115 @@ def command_download_report_zip(args: argparse.Namespace) -> None:
     )
 
 
+def command_extract_email_links(args: argparse.Namespace) -> None:
+    result = parse_email_file(args.file, sample_chars=args.sample_chars)
+    payload = asdict(result)
+    if not args.include_all_links:
+        payload.pop("all_links", None)
+    _print_json(payload)
+
+
+def _download_urls_from_email(file_path: str, sample_chars: int, include_other_links: bool) -> dict[str, Any]:
+    email_result = parse_email_file(file_path, sample_chars=sample_chars)
+    selected_urls: list[str] = []
+
+    for link in email_result.all_links:
+        report_ids = _extract_report_ids_from_text(link.normalized_url)
+        if report_ids:
+            for report_id in report_ids:
+                download_url = _build_report_download_url(report_id)
+                if download_url not in selected_urls:
+                    selected_urls.append(download_url)
+            continue
+
+        if link.category == "download_candidate" or include_other_links:
+            if link.normalized_url not in selected_urls:
+                selected_urls.append(link.normalized_url)
+
+    return {
+        "email": asdict(email_result),
+        "download_urls": selected_urls,
+    }
+
+
+def command_download_email_reports(args: argparse.Namespace) -> None:
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError as exc:
+        raise RuntimeError(
+            "Playwright is required for download-email-reports. "
+            "Install it with `python -m pip install -r requirements.txt` and `python -m playwright install chromium`."
+        ) from exc
+
+    config = load_config(args.config)
+    timeout_ms = args.timeout_seconds * 1000
+    download_dir = Path(args.download_dir)
+    selected = _download_urls_from_email(args.file, args.sample_chars, args.include_other_links)
+    download_urls = selected["download_urls"][: args.max_downloads] if args.max_downloads else selected["download_urls"]
+
+    with sync_playwright() as playwright:
+        context = playwright.chromium.launch_persistent_context(
+            config.portal.profile_dir,
+            headless=not args.headed,
+            ignore_https_errors=True,
+            accept_downloads=True,
+            viewport={"width": 1800, "height": 1200},
+        )
+        try:
+            results = [
+                _download_report_zip(
+                    context,
+                    download_url,
+                    download_dir=download_dir,
+                    timeout_ms=timeout_ms,
+                )
+                for download_url in download_urls
+            ]
+        finally:
+            context.close()
+
+    report_json_results: list[dict[str, Any]] = []
+    if args.extract_json:
+        for result in results:
+            saved_path = result.get("saved_path")
+            if result.get("status") != "downloaded" or not saved_path:
+                continue
+            try:
+                report_json_results.append(
+                    {
+                        "saved_path": saved_path,
+                        "status": "ok",
+                        "summary": _reporting_portal_json_summary(saved_path, args.encoding, args.max_cases),
+                    }
+                )
+            except Exception as exc:
+                report_json_results.append(
+                    {
+                        "saved_path": saved_path,
+                        "status": "failed",
+                        "error": str(exc),
+                    }
+                )
+
+    _print_json(
+        {
+            "status": "ok" if any(item["status"] == "downloaded" for item in results) else "failed",
+            "email": {
+                "source": selected["email"]["source"],
+                "subject": selected["email"]["subject"],
+                "sent_at": selected["email"]["sent_at"],
+                "link_count": selected["email"]["link_count"],
+                "download_candidate_count": len(selected["email"]["download_candidates"]),
+            },
+            "download_url_count": len(download_urls),
+            "download_urls": download_urls,
+            "download_dir": str(download_dir),
+            "results": results,
+            "report_json_results": report_json_results,
+        }
+    )
+
+
 def command_collect_links(args: argparse.Namespace) -> None:
     try:
         from playwright.sync_api import sync_playwright
@@ -708,6 +820,24 @@ def build_parser() -> argparse.ArgumentParser:
     )
     report_json_parser.set_defaults(func=command_extract_report_json)
 
+    email_links_parser = subparsers.add_parser(
+        "extract-email-links",
+        help="Extract report and download links from a saved result email file.",
+    )
+    email_links_parser.add_argument("--file", required=True, help="Path to a saved .eml or .msg result email.")
+    email_links_parser.add_argument(
+        "--sample-chars",
+        type=int,
+        default=500,
+        help="Number of body text characters to include for debugging. Defaults to 500.",
+    )
+    email_links_parser.add_argument(
+        "--include-all-links",
+        action="store_true",
+        help="Include all extracted links in the output, not only categorized link groups.",
+    )
+    email_links_parser.set_defaults(func=command_extract_email_links)
+
     extract_url_parser = subparsers.add_parser(
         "extract-log-url",
         help="Open a log.html URL with Playwright and extract failed case evidence.",
@@ -806,6 +936,53 @@ def build_parser() -> argparse.ArgumentParser:
     )
     download_zip_parser.add_argument("--headed", action="store_true", help="Run Chromium in headed mode.")
     download_zip_parser.set_defaults(func=command_download_report_zip)
+
+    email_download_parser = subparsers.add_parser(
+        "download-email-reports",
+        help="Extract download links from a saved result email, download them, and optionally parse reporting JSON.",
+    )
+    email_download_parser.add_argument("--file", required=True, help="Path to a saved .eml or .msg result email.")
+    email_download_parser.add_argument(
+        "--timeout-seconds",
+        type=int,
+        default=60,
+        help="Download timeout. Defaults to 60.",
+    )
+    email_download_parser.add_argument(
+        "--download-dir",
+        default="/tmp/cit_crt_morning_triage_agent_downloads",
+        help="Directory for captured downloads. Defaults to /tmp/cit_crt_morning_triage_agent_downloads.",
+    )
+    email_download_parser.add_argument(
+        "--sample-chars",
+        type=int,
+        default=500,
+        help="Number of body text characters to include while parsing the email. Defaults to 500.",
+    )
+    email_download_parser.add_argument(
+        "--max-downloads",
+        type=int,
+        help="Limit selected download URLs for debugging.",
+    )
+    email_download_parser.add_argument(
+        "--include-other-links",
+        action="store_true",
+        help="Also attempt non-download links extracted from the email.",
+    )
+    email_download_parser.add_argument(
+        "--extract-json",
+        action="store_true",
+        help="Parse downloaded robot_report.zip/reporting_portal.json files after download.",
+    )
+    email_download_parser.add_argument("--encoding", default="utf-8", help="JSON encoding. Defaults to utf-8.")
+    email_download_parser.add_argument(
+        "--max-cases",
+        type=int,
+        default=20,
+        help="Maximum failed cases to print when --extract-json is used. Defaults to 20.",
+    )
+    email_download_parser.add_argument("--headed", action="store_true", help="Run Chromium in headed mode.")
+    email_download_parser.set_defaults(func=command_download_email_reports)
 
     collect_parser = subparsers.add_parser(
         "collect-links",

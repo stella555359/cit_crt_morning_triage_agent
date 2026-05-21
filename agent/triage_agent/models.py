@@ -101,6 +101,38 @@ class TestRunRowLinks:
 
 
 @dataclass(frozen=True)
+class EmailLinkCandidate:
+    original_url: str
+    normalized_url: str
+    category: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class EmailAttachmentSummary:
+    filename: str | None
+    content_type: str | None
+    size_bytes: int | None = None
+
+
+@dataclass(frozen=True)
+class EmailParseResult:
+    source: str
+    subject: str | None
+    from_address: str | None
+    to_addresses: list[str]
+    sent_at: str | None
+    body_text_length: int
+    body_text_sample: str
+    link_count: int
+    download_candidates: list[EmailLinkCandidate]
+    portal_links: list[EmailLinkCandidate]
+    jenkins_links: list[EmailLinkCandidate]
+    all_links: list[EmailLinkCandidate]
+    attachments: list[EmailAttachmentSummary]
+
+
+@dataclass(frozen=True)
 class FailedCaseEvidence:
     full_name: str | None
     tags: list[str]

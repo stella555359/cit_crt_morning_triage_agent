@@ -306,6 +306,36 @@ FAIL CannotAttachError: Cell id is not changed for UE: 6306e004
 -> 尝试解析 output.xml / JSON / report files
 ```
 
+### 结果邮件源优先
+
+2026-05-21 的验证中发现，Reporting Portal 页面路线有两个长期风险：
+
+```text
+SSO/MSAL session 几小时后可能失效，需要人工重新登录 persistent profile
+Debian 服务器无法稳定打开 Windows 可访问的 10.70.226.9 log.html
+```
+
+因此新增“结果邮件源优先”的数据入口：
+
+```text
+nightly result email
+-> 解析邮件正文和 href 链接
+-> 提取 download/report/log 候选链接
+-> 如果链接包含 Reporting Portal report id，则构造 /at/test-reports/<id>/download/
+-> 下载 robot_report.zip 或其他 report/log 包
+-> 复用 reporting_portal.json 解析能力
+-> 后续进入分类和 Morning Report
+```
+
+第一步只验证本地样例邮件文件，不直接接入邮箱 API：
+
+```bash
+PYTHONPATH=agent python -m triage_agent extract-email-links --file samples/result-mail.eml
+PYTHONPATH=agent python -m triage_agent download-email-reports --file samples/result-mail.eml --extract-json
+```
+
+这样可以先判断“邮件里的下载链接是否足够支撑 triage”，再决定后续使用 Microsoft Graph、IMAP，还是邮件规则转发到专用邮箱。
+
 ## 初始分类规则
 
 第一版分类不要太多：

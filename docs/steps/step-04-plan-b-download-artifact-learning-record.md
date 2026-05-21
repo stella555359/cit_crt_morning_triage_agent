@@ -160,6 +160,17 @@ downloaded zip only contains reporting_portal.json
 
 This means the zip is a Reporting Portal structured summary, not the full raw Robot log. `extract-report-json` checks whether that summary contains enough failed-case evidence for triage.
 
+Validated result at `2026-05-21 16:54`:
+
+```text
+source: docs/reporting_portal.json
+suite_count: 1
+test_case_count: 22
+failed_case_count: 0
+```
+
+This sample report is all passed, so it cannot validate failure evidence extraction. The next validation must use the report id for an actual `not analyzed / failed` triage row.
+
 ## Review Questions
 
 - Does `download-report-zip` save `robot_report.zip` on Debian?
