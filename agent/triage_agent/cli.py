@@ -111,7 +111,7 @@ def _read_log_body_with_fallback(
     timeout_ms: int,
     wait_seconds: int,
     allow_http_fallback: bool,
-) -> tuple[str | None, str | None, list[dict[str, str]]]:
+) -> tuple[str | None, dict[str, Any] | None, list[dict[str, str]]]:
     attempted_urls = [url]
     fallback_url = _http_fallback_url(url) if allow_http_fallback else None
     if fallback_url:
@@ -122,11 +122,18 @@ def _read_log_body_with_fallback(
     for candidate_url in attempted_urls:
         page = context.new_page()
         try:
-            page.goto(candidate_url, wait_until="domcontentloaded", timeout=timeout_ms)
+            response = page.goto(candidate_url, wait_until="domcontentloaded", timeout=timeout_ms)
             page.wait_for_timeout(wait_seconds * 1000)
             body_text = page.locator("body").inner_text(timeout=timeout_ms)
+            diagnostics = {
+                "effective_url": candidate_url,
+                "final_url": page.url,
+                "title": page.title(),
+                "response_status": response.status if response else None,
+                "response_content_type": response.headers.get("content-type") if response else None,
+            }
             page.close()
-            return body_text, candidate_url, errors
+            return body_text, diagnostics, errors
         except Exception as exc:  # Playwright rewrites network failures into library-specific errors.
             errors.append({"url": candidate_url, "error": str(exc)})
             page.close()
@@ -154,7 +161,7 @@ def command_extract_log_url(args: argparse.Namespace) -> None:
             viewport={"width": 1800, "height": 1200},
         )
         try:
-            body_text, effective_url, errors = _read_log_body_with_fallback(
+            body_text, diagnostics, errors = _read_log_body_with_fallback(
                 context,
                 args.url,
                 timeout_ms=timeout_ms,
@@ -177,10 +184,11 @@ def command_extract_log_url(args: argparse.Namespace) -> None:
     _print_json(
         {
             "url": args.url,
-            "effective_url": effective_url,
             "status": "ok",
+            **(diagnostics or {}),
             "navigation_errors": errors,
             "body_text_length": len(body_text),
+            "body_text_sample": body_text[: args.sample_chars],
             "failed_case_count": len(extract_failed_cases_from_text(body_text)),
             "failed_cases": _failed_case_payload(body_text),
         }
@@ -315,6 +323,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=10,
         help="Extra wait after domcontentloaded before reading body text. Defaults to 10.",
+    )
+    extract_url_parser.add_argument(
+        "--sample-chars",
+        type=int,
+        default=500,
+        help="Number of body text characters to include for debugging. Defaults to 500.",
     )
     extract_url_parser.add_argument("--headed", action="store_true", help="Run Chromium in headed mode.")
     extract_url_parser.add_argument(

@@ -302,10 +302,25 @@ PYTHONPATH=agent python -m triage_agent extract-log-url \
 ```text
 status = ok
 输出 effective_url
+输出 final_url
+输出 response_status
+输出 response_content_type
 输出 body_text_length
+输出 body_text_sample
 输出 failed_case_count
 输出 failed_cases
 每个 failed case 包含 evidence 和 classification
+```
+
+已验证结果：
+
+```text
+2026-05-21 15:05
+extract-log-url: HTTPS URL 返回 net::ERR_CONNECTION_CLOSED，fallback 到 HTTP 成功
+effective_url: http://10.70.226.9/...
+body_text_length: 26
+failed_case_count: 0
+结论：HTTP fallback 已生效，但返回内容太短，不是完整 Robot log；下一步需要查看 response_status / response_content_type / body_text_sample 判断具体原因
 ```
 
 常见失败模式：

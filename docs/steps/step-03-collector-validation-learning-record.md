@@ -56,6 +56,8 @@ Adds `extract-log-url`, so the next validation can open a triage row's `log_url`
 
 The first validation hit `Page.goto: net::ERR_CONNECTION_CLOSED` on the internal HTTPS log URL. The command now retries with `http://` automatically and returns structured `navigation_failed` output if both attempts fail.
 
+Follow-up validation at `2026-05-21 15:05` confirmed that HTTPS fails with `ERR_CONNECTION_CLOSED` and HTTP fallback succeeds, but the response body is only 26 characters and `failed_case_count` is 0. The command now outputs `response_status`, `response_content_type`, `final_url`, `title`, and `body_text_sample` to identify whether the log server returned a short error page, redirect, or placeholder.
+
 ```text
 deploy/server_runtime_setup.md
 ```
@@ -103,6 +105,10 @@ run_type
 failed_case_count
 failed_cases
 effective_url
+final_url
+response_status
+response_content_type
+body_text_sample
 navigation_errors
 ```
 
@@ -193,6 +199,12 @@ Page.goto: net::ERR_CONNECTION_CLOSED
 ```
 
 This may happen when the internal log server closes HTTPS connections. `extract-log-url` now automatically retries with HTTP and reports attempted URL errors in JSON.
+
+```text
+body_text_length is very small, such as 26
+```
+
+This means navigation technically succeeded, but the response is not the full Robot log. Inspect `response_status`, `response_content_type`, `final_url`, `title`, and `body_text_sample` to decide whether the URL is blocked, redirected, missing, or requires a different access path.
 
 ## Review Questions
 
