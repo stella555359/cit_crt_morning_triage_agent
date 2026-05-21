@@ -198,6 +198,35 @@ Agent 能通过 Playwright 直接读取 log.html 文本。
 
 注意：脚本示例中只打印了 `text[:5000]`，不是只能读取前 5000 字符。实际已读取到 54064 字符。
 
+补充验证结论（2026-05-21）：
+
+```text
+原 Debian 服务器无法稳定打开部分 10.70.226.9 log.html。
+换到 10.57.159.149（tl813-agent）后，Debian 浏览器可以直接打开同类 log.html。
+```
+
+手工 Chrome 首次打开时会看到：
+
+```text
+Your connection is not private
+NET::ERR_CERT_AUTHORITY_INVALID
+```
+
+这是内部日志服务器证书不被 Chrome 信任造成的隐私告警。点击 Advanced / Proceed 后页面可以打开。Agent 的 Playwright context 已设置：
+
+```text
+ignore_https_errors=True
+```
+
+因此在 `tl813-agent` 上，主路线可以回到最初的：
+
+```text
+Reporting Portal filtered URL
+-> Test Logs link
+-> Playwright direct log.html read
+-> extract failed case message and failed step
+```
+
 ### 6. `Download zip` 也可通过 reporting_portal 登录态触发
 
 已验证 report detail 的下载 URL 能触发下载：
@@ -335,6 +364,14 @@ PYTHONPATH=agent python -m triage_agent download-email-reports --file samples/re
 ```
 
 这样可以先判断“邮件里的下载链接是否足够支撑 triage”，再决定后续使用 Microsoft Graph、IMAP，还是邮件规则转发到专用邮箱。
+
+补充决策（2026-05-21）：
+
+```text
+邮件源方案暂时放弃，不作为主路线。
+原因：已找到可直接打开 log.html 的 Debian 服务器 10.57.159.149（tl813-agent）。
+后续优先继续 Playwright 直读 log.html 方案。
+```
 
 ## 初始分类规则
 

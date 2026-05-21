@@ -118,10 +118,16 @@ report_json_results
 
 ## 服务器端验证命令
 
-先把一封真实 nightly 结果邮件导出为 `.eml`，放到项目目录：
+先把一封真实 nightly 结果邮件导出为 `.eml` 或 `.msg`，放到项目目录：
 
 ```text
 samples/result-mail.eml
+```
+
+如果验证 `.msg`，先确保服务器安装了依赖：
+
+```bash
+python -m pip install -r requirements.txt
 ```
 
 只验证邮件解析：
@@ -129,6 +135,14 @@ samples/result-mail.eml
 ```bash
 PYTHONPATH=agent python -m triage_agent extract-email-links \
   --file samples/result-mail.eml \
+  --include-all-links
+```
+
+当前 `.msg` 样例的命令示例：
+
+```bash
+PYTHONPATH=agent python -m triage_agent extract-email-links \
+  --file "samples/FAIL CIT RN (VRF_HAZ_T06-7_5_UTE5G402T820) SBTS00_ENB_9999_260520_000007 -- Triggered at 2026-05-20 235148.msg" \
   --include-all-links
 ```
 
@@ -168,6 +182,15 @@ PYTHONPATH=agent python -m triage_agent download-email-reports \
   --extract-json
 ```
 
+当前 `.msg` 样例的下载命令示例：
+
+```bash
+PYTHONPATH=agent python -m triage_agent download-email-reports \
+  --file "samples/FAIL CIT RN (VRF_HAZ_T06-7_5_UTE5G402T820) SBTS00_ENB_9999_260520_000007 -- Triggered at 2026-05-20 235148.msg" \
+  --max-downloads 1 \
+  --extract-json
+```
+
 ## 常见失败模式
 
 ```text
@@ -198,7 +221,7 @@ failed_case_count = 0
 .msg 解析出的 body_text_length 很小或 link_count = 0
 ```
 
-当前 `.msg` 支持是 best-effort。如果 `.msg` 无法解析，优先从 Outlook 导出 `.eml`；后续再评估是否安装 optional `extract_msg` 依赖。
+当前 `.msg` 使用 `extract-msg` 解析。如果依赖尚未安装，先执行 `python -m pip install -r requirements.txt`。如果仍无法解析，优先从 Outlook 导出 `.eml` 再验证。
 
 ## 给用户的复盘问题
 

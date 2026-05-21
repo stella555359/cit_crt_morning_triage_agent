@@ -32,6 +32,11 @@ OUTLOOK_SAFELINK_HOST_KEYWORDS = ("safelinks.protection.outlook.com", "eur01.saf
 
 def parse_email_file(path: str | Path, *, sample_chars: int = 500) -> EmailParseResult:
     source_path = Path(path)
+    if not source_path.exists():
+        raise FileNotFoundError(
+            f"Email file not found: {source_path}. "
+            "Use the actual .eml/.msg filename under samples/ and quote paths that contain spaces."
+        )
     raw_bytes = source_path.read_bytes()
 
     if source_path.suffix.lower() == ".msg":
@@ -101,7 +106,10 @@ def _parse_msg_with_optional_library(
     except ImportError:
         return None
 
-    msg = extract_msg.Message(str(source_path))
+    try:
+        msg = extract_msg.Message(str(source_path))
+    except Exception:
+        return None
     plain_body = str(getattr(msg, "body", "") or "")
     html_body = str(getattr(msg, "htmlBody", "") or "")
     html_href_text = "\n".join(HREF_PATTERN.findall(html_body))

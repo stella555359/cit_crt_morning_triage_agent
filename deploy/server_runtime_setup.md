@@ -486,17 +486,60 @@ Windows 可以打开同一个 Test Logs 链接
 Debian 服务器不能打开同一个 Test Logs 链接
 ```
 
+补充验证结论（2026-05-21）：
+
+```text
+换到 Debian 服务器 10.57.159.149（tl813-agent）后，可以直接打开同类 log.html。
+手工 Chrome 首次打开会出现 Your connection is not private / NET::ERR_CERT_AUTHORITY_INVALID。
+点击 Advanced / Proceed 后可以进入 Robot log.html 页面。
+```
+
+这说明原问题主要是服务器节点网络/证书访问环境差异，不是 Playwright 直读 `log.html` 方案本身不可行。
+
+在 `tl813-agent` 上优先验证：
+
+```bash
+cd /opt/cit_crt_morning_triage_agent
+source .venv/bin/activate
+PYTHONPATH=agent python -m triage_agent extract-log-url \
+  --url "https://10.70.226.9/logs/WebTrigger/SBTS26R2/SBTS26R2_ENB_0000_000406_000000/4654/CRT/VRF_HAZ_T06/7_5_UTE5G402T273/artifact/quicktest/retry-0/ca_cases/log.html"
+```
+
+预期结果：
+
+```text
+status = ok
+response_status = 200
+body_text_length > 0
+failed_case_count 有输出
+```
+
+如果手工 Chrome 显示 `NET::ERR_CERT_AUTHORITY_INVALID`，CLI 正常情况下不需要额外处理，因为 Playwright context 已使用：
+
+```text
+ignore_https_errors=True
+```
+
+如果仍然输出：
+
+```text
+status = navigation_failed
+net::ERR_CERT_AUTHORITY_INVALID
+```
+
+说明当前命令没有走到项目内的 Playwright context，或该服务器的 Chromium/Playwright 版本行为不同，需要优先检查运行的代码版本是否最新。
+
 因此后续实现分为两条路线：
 
 ```text
-路线 A：解决 Debian 服务器到 10.70.226.9 的网络访问
+路线 A：部署到可访问 log.html 的 Debian 服务器 10.57.159.149 / tl813-agent
 - 适合继续沿用当前 log.html 直接解析方案
-- 需要网络/路由/代理/访问权限支持
+- 当前作为主路线
 
 路线 B：不依赖 10.70.226.9 直接访问
 - 改为寻找 Reporting Portal detail 页或后端能触发的 download zip / artifact download 路径
 - Agent 下载 zip 后在服务器本地解压 log.html 或 output.xml
-- 这条路线更符合“部署在 Debian 上自动运行”的约束
+- 仅作为 fallback
 ```
 
 ### Plan B：验证 Reporting Portal 下载入口
@@ -787,10 +830,18 @@ PYTHONPATH=agent python -m triage_agent collect-links
 
 如果 Reporting Portal SSO 登录态频繁失效，或 Debian 服务器无法打开 `log.html`，优先验证 nightly 结果邮件里的下载链接。
 
-先把一封真实结果邮件导出为 `.eml`，放到：
+先把一封真实结果邮件导出为 `.eml` 或 `.msg`，放到：
 
 ```text
 /opt/cit_crt_morning_triage_agent/samples/result-mail.eml
+```
+
+如果使用 Outlook `.msg` 文件，先更新依赖：
+
+```bash
+cd /opt/cit_crt_morning_triage_agent
+source .venv/bin/activate
+python -m pip install -r requirements.txt
 ```
 
 解析邮件链接：
@@ -800,6 +851,14 @@ cd /opt/cit_crt_morning_triage_agent
 source .venv/bin/activate
 PYTHONPATH=agent python -m triage_agent extract-email-links \
   --file samples/result-mail.eml \
+  --include-all-links
+```
+
+如果文件名包含空格和括号，必须给 `--file` 后面的路径加引号，例如：
+
+```bash
+PYTHONPATH=agent python -m triage_agent extract-email-links \
+  --file "samples/FAIL CIT RN (VRF_HAZ_T06-7_5_UTE5G402T820) SBTS00_ENB_9999_260520_000007 -- Triggered at 2026-05-20 235148.msg" \
   --include-all-links
 ```
 
@@ -817,6 +876,15 @@ download_candidates / portal_links / jenkins_links 至少有一个不为空
 ```bash
 PYTHONPATH=agent python -m triage_agent download-email-reports \
   --file samples/result-mail.eml \
+  --max-downloads 1 \
+  --extract-json
+```
+
+如果使用当前 `.msg` 样例：
+
+```bash
+PYTHONPATH=agent python -m triage_agent download-email-reports \
+  --file "samples/FAIL CIT RN (VRF_HAZ_T06-7_5_UTE5G402T820) SBTS00_ENB_9999_260520_000007 -- Triggered at 2026-05-20 235148.msg" \
   --max-downloads 1 \
   --extract-json
 ```

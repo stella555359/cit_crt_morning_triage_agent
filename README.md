@@ -4,9 +4,9 @@
 
 This project builds an internal morning triage assistant for daily CIT/CRT Robot Framework regression analysis.
 
-The agent will run on the Debian 13 server used by the existing automation environment. The current preferred source is the nightly result email: parse report/log download links from the email, download the related package, extract failed case evidence, classify likely failure categories, and expose a Morning Report through a web UI.
+The agent will run on a Debian server that can access the internal Robot `log.html` static server. The current preferred source is the original Playwright route: open `reporting_portal`, collect `Test Logs` links, read `log.html`, extract failed case evidence, classify likely failure categories, and expose a Morning Report through a web UI.
 
-The earlier `reporting_portal` browser route remains as a fallback and validation path.
+The email result source was explored as a fallback, but it is not the main route now. The current target server candidate is `10.57.159.149` / `tl813-agent`, because it can open `log.html` links that failed on the previous Debian server.
 
 ## Scope
 
@@ -44,6 +44,7 @@ Key validated points:
 - Filtered `test-runs` URL works with `test_line`.
 - `Test Logs` links can be extracted from the filtered page.
 - `log.html` can be opened and read by Playwright.
+- `10.57.159.149` / `tl813-agent` can open internal `log.html` links directly after the browser certificate warning is bypassed.
 
 Initial implementation has started with:
 

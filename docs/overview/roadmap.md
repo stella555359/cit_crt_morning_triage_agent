@@ -8,25 +8,25 @@
 
 Build a Debian-hosted internal assistant that automates the repetitive part of daily CIT/CRT Robot result triage.
 
-当前主路线调整为“邮件结果源优先，Reporting Portal 页面扫描保留为备用验证路线”：
-
-```text
-daily result email
--> report/log download links
--> robot_report.zip / reporting_portal.json
--> failed case summary extraction
--> first-pass classification
--> Web Morning Report
--> human review
-```
-
-原始 Reporting Portal 页面路线仍保留：
+当前主路线恢复为“Playwright + Reporting Portal + 直接读取 `log.html`”：
 
 ```text
 reporting_portal filtered page
 -> not analyzed Robot cases
 -> Test Logs / log.html
 -> failed case message and failed keyword extraction
+-> first-pass classification
+-> Web Morning Report
+-> human review
+```
+
+邮件结果源已探索，但暂不作为主路线：
+
+```text
+daily result email
+-> report/log download links
+-> robot_report.zip / reporting_portal.json
+-> failed case summary extraction
 ```
 
 ## Current Status
@@ -47,14 +47,14 @@ Added finding:
 - Persistent profile works only while the SSO/MSAL session is valid.
 - The session can expire and leave the page stuck at `Loading...`.
 - The agent must perform a login health check before each scan and stop with a clear re-login handoff if the session is expired.
-- Debian 服务器无法稳定打开部分 Windows 可访问的 `10.70.226.9` `log.html`。
-- 邮件里如果包含 nightly result 的下载链接，应优先从邮件解析下载入口，减少对 Reporting Portal 页面和 SSO 持久登录态的依赖。
+- 原 Debian 服务器无法稳定打开部分 Windows 可访问的 `10.70.226.9` `log.html`。
+- 换到 `10.57.159.149`（`tl813-agent`）后，Debian 浏览器可以直接打开同类 `log.html`。
+- 手工浏览器首次打开会看到 `NET::ERR_CERT_AUTHORITY_INVALID` 隐私告警；Playwright 命令应使用 `ignore_https_errors=True` 处理该自签/内部证书问题。
 
 Not yet validated:
 
 - Stable extraction of case-level `Status: FAIL`, `Message`, failed keyword, failure text, and keyword chain from `log.html`.
-- Real server execution of the first CLI commands added under `agent/triage_agent`.
-- 从真实 nightly 结果邮件 `.eml/.msg` 中提取下载链接，并在 Debian 上成功下载 report/log 包。
+- 在 `10.57.159.149` / `tl813-agent` 上执行 `extract-log-url`，确认 Playwright headless 能绕过证书告警并读取 `log.html` 正文。
 
 Implemented locally in the project:
 
@@ -73,9 +73,42 @@ agent/triage_agent/cli.py
 
 ## Execution Order
 
-### Phase 0.5: Email Result Source Validation
+### Phase 0.5: Server Selection And Direct Log Validation
 
-先验证一封真实 nightly 结果邮件是否能作为更稳定的数据入口。
+优先在 `10.57.159.149`（`tl813-agent`）验证直接 `log.html` 读取。
+
+Initial command:
+
+```text
+python -m triage_agent extract-log-url --url "<log.html URL>"
+```
+
+Expected behavior:
+
+```text
+status = ok
+body_text_length > 0
+failed_case_count is printed
+failed_cases contains case-level evidence when the log has failed cases
+```
+
+Common failure modes:
+
+```text
+NET::ERR_CERT_AUTHORITY_INVALID
+```
+
+手工 Chrome 会显示隐私告警，这是内部证书问题。CLI 中的 Playwright context 已设置 `ignore_https_errors=True`，正常情况下不需要人工点击 Advanced。
+
+```text
+navigation_failed / ERR_CONNECTION_CLOSED / chrome-error://chromewebdata/
+```
+
+说明当前服务器仍无法访问对应日志静态服务器，需要换到可访问的 Debian 节点或继续排查网络路由。
+
+### Phase 0.6: Email Result Source Validation
+
+邮件结果源已经实现为备用探索路线，但当前不作为主路线。
 
 Initial commands:
 
