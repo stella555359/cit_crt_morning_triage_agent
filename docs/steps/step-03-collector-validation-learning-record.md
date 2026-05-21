@@ -64,6 +64,12 @@ Follow-up validation at `2026-05-21 15:18` confirmed that direct access to all g
 
 Follow-up validation at `2026-05-21 15:22` confirmed the detail page is accessible and contains 23 Test Logs links, but those links still point to the same unreachable internal log URLs. `extract-detail-log` now tries to click the first Test Logs link from the detail page when direct URL navigation fails, to test whether browser click behavior, Referer, or popup handling changes access.
 
+Follow-up validation at `2026-05-21 16:01` showed `extract-detail-log` redirecting to `login.microsoftonline.com` with title `Sign in to your account`. This is an expired SSO session, not a missing Test Logs link. The command now detects this and returns `status=session_expired`.
+
+Follow-up validation at `2026-05-21 16:09` showed that clicking the Test Logs link from the detail page opens a new page with `click_final_url=chrome-error://chromewebdata/` and empty body text. This means click behavior, Referer, and popup handling do not solve access to `10.70.226.9` from the Debian Chromium session. The command now treats `chrome-error://` and empty click pages as failure diagnostics instead of successful log extraction.
+
+Manual comparison at `2026-05-21 16:17` confirmed that Windows can open the same Test Logs link while the Debian server cannot. The blocker is therefore Debian network/path access to the internal log static server, not Reporting Portal row extraction or Playwright click behavior.
+
 ```text
 deploy/server_runtime_setup.md
 ```
@@ -96,6 +102,7 @@ extract-log-url
 
 extract-detail-log
 -> open Reporting Portal detail URL
+-> detect Microsoft SSO login page and return session_expired if needed
 -> collect Test Logs/log.html links from the detail page
 -> try the selected log link with URL fallback
 -> if direct navigation fails, click the Test Logs link from the detail page
@@ -133,7 +140,9 @@ click_fallback_used
 click_final_url
 click_title
 click_opened_new_page
+click_diagnostics
 click_error
+session_expired
 ```
 
 ## Server-Side Validation Commands
@@ -247,6 +256,24 @@ detail page contains Test Logs links, but all direct candidates fail
 ```
 
 The command now clicks the first Test Logs link in the detail page as a final fallback.
+
+```text
+click_final_url = chrome-error://chromewebdata/
+```
+
+The browser click reached a Chrome error page. At this point, the Reporting Portal extraction works, but the Debian server cannot open the internal log static page. Investigate server network/path access or switch to an alternative artifact path such as download zip.
+
+```text
+Windows can open the Test Logs link, Debian cannot
+```
+
+This confirms an environment/network gap. The next implementation path should either restore Debian access to `10.70.226.9`, or avoid direct log static URLs and use a Reporting Portal download zip/artifact path that the Debian server can access.
+
+```text
+detail_final_url contains login.microsoftonline.com
+```
+
+The Reporting Portal session expired. Re-login with the persistent profile, rerun `health`, then rerun `extract-detail-log`.
 
 ## Review Questions
 

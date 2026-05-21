@@ -330,6 +330,16 @@ extract-log-url: HTTPS / HTTP / 去掉 /logs 前缀的候选 URL 均失败，直
 2026-05-21 15:22
 extract-detail-log: detail 页面可打开，log_link_count=23，但 detail 页里的 Test Logs href 仍是同一批不可直接访问的 https://10.70.226.9/logs/... URL
 后续修正：extract-detail-log 在直接访问 href 失败后，会继续尝试在 detail 页面里实际点击第一个 Test Logs 链接，以验证是否依赖浏览器点击、Referer 或弹窗行为
+2026-05-21 16:01
+extract-detail-log: detail_final_url 跳转到 login.microsoftonline.com，detail_title=Sign in to your account，body 显示 Enter password
+结论：不是没有 Test Logs 链接，而是 SSO session 过期；后续修正为 extract-detail-log 识别 Microsoft SSO 登录页并返回 status=session_expired
+2026-05-21 16:09
+extract-detail-log: 点击 Test Logs 后打开新页，但 click_final_url=chrome-error://chromewebdata/，body_text_length=0
+结论：点击行为、Referer、popup 均不能解决；Debian Chromium 当前无法访问 10.70.226.9 的日志静态页面
+后续修正：遇到 chrome-error:// 或空页面时返回失败诊断，而不是误报 status=ok
+2026-05-21 16:17
+人工对比验证：Windows 浏览器可以打开同一个 Test Logs 链接，Debian 服务器无法打开
+最终定位：不是 Reporting Portal 链接错误，也不是 Playwright 点击方式问题，而是 Debian 服务器到 10.70.226.9 日志静态服务器的网络/路由/访问权限问题
 ```
 
 常见失败模式：
@@ -423,6 +433,7 @@ click_fallback_used
 click_final_url
 click_title
 click_opened_new_page
+click_diagnostics
 click_error
 ```
 
@@ -433,6 +444,117 @@ PYTHONPATH=agent python -m triage_agent extract-detail-log \
   --no-click-fallback \
   --url "https://rep-portal.ext.net.nokia.com/reports/test-runs/?test_instance_id=35764397&ordering=-end&end_db=365"
 ```
+
+如果输出：
+
+```text
+status = session_expired
+detail_final_url = https://login.microsoftonline.com/...
+detail_title = Sign in to your account
+```
+
+说明 Reporting Portal 登录态已过期。先重新执行本文档中的 headed 重新登录步骤，再重新执行：
+
+```bash
+PYTHONPATH=agent python -m triage_agent health
+PYTHONPATH=agent python -m triage_agent extract-detail-log \
+  --url "https://rep-portal.ext.net.nokia.com/reports/test-runs/?test_instance_id=35764397&ordering=-end&end_db=365"
+```
+
+如果输出：
+
+```text
+click_final_url = chrome-error://chromewebdata/
+body_text_length = 0
+```
+
+说明浏览器点击也无法打开日志页面。此时问题不在 Reporting Portal 链接提取，而在 Debian 到内部日志静态服务器的访问路径或日志服务器映射。
+
+下一步排查方向：
+
+```text
+1. 在服务器 headed Chromium 手工打开同一个 Test Logs 链接，确认是否同样是 Chrome error page
+2. 在 Windows 浏览器手工打开同一个 Test Logs 链接，确认是否 Windows 可访问但 Debian 不可访问
+3. 向团队确认 10.70.226.9 的日志服务是否需要特定网络、DNS、代理、VPN 或只允许某些来源访问
+4. 如果直接 log.html 访问无法解决，转向 Reporting Portal 可用的 download zip / artifact download 路径
+```
+
+当前验证结论：
+
+```text
+Windows 可以打开同一个 Test Logs 链接
+Debian 服务器不能打开同一个 Test Logs 链接
+```
+
+因此后续实现分为两条路线：
+
+```text
+路线 A：解决 Debian 服务器到 10.70.226.9 的网络访问
+- 适合继续沿用当前 log.html 直接解析方案
+- 需要网络/路由/代理/访问权限支持
+
+路线 B：不依赖 10.70.226.9 直接访问
+- 改为寻找 Reporting Portal detail 页或后端能触发的 download zip / artifact download 路径
+- Agent 下载 zip 后在服务器本地解压 log.html 或 output.xml
+- 这条路线更符合“部署在 Debian 上自动运行”的约束
+```
+
+### Plan B：验证 Reporting Portal 下载入口
+
+当 Debian 无法直接打开 `10.70.226.9` 的 `log.html` 时，改为验证 Reporting Portal detail 页面是否提供可下载的 zip / artifact / output 文件入口。
+
+第一步只检查候选入口，不点击下载：
+
+```bash
+PYTHONPATH=agent python -m triage_agent inspect-detail-assets \
+  --url "https://rep-portal.ext.net.nokia.com/reports/test-runs/?test_instance_id=35764397&ordering=-end&end_db=365"
+```
+
+重点看输出：
+
+```text
+status
+detail_response_status
+candidate_count
+download_candidate_count
+candidates
+download_candidates
+opened_more
+before_more
+after_more
+```
+
+如果 `download_candidate_count > 0`，再尝试点击下载候选：
+
+```bash
+PYTHONPATH=agent python -m triage_agent inspect-detail-assets \
+  --attempt-download \
+  --url "https://rep-portal.ext.net.nokia.com/reports/test-runs/?test_instance_id=35764397&ordering=-end&end_db=365"
+```
+
+默认下载保存目录：
+
+```text
+/tmp/cit_crt_morning_triage_agent_downloads
+```
+
+下载成功时预期输出：
+
+```text
+download_results.status = downloaded
+download_results.suggested_filename
+download_results.saved_path
+```
+
+如果输出：
+
+```text
+status = session_expired
+```
+
+说明 Reporting Portal 登录态过期，需要先重新 headed 登录，再重新执行 `inspect-detail-assets`。
+
+如果 `download_candidate_count = 0`，说明当前 detail 页面 DOM 中没有直接可见的 zip/download/artifact 入口。下一步需要检查网络请求或 Reporting Portal 是否有隐藏接口。
 
 ## 常见失败模式
 

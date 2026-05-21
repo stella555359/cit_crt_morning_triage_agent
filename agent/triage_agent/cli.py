@@ -186,6 +186,157 @@ def _extract_log_links_from_current_page(page: Any) -> list[dict[str, str]]:
     )
 
 
+def _looks_like_sso_login(url: str, title: str, body_text: str) -> bool:
+    normalized_body = " ".join(body_text.split()).lower()
+    normalized_title = title.strip().lower()
+    return (
+        "login.microsoftonline.com" in url
+        or normalized_title == "sign in to your account"
+        or "enter password" in normalized_body
+        or "sign in with another account" in normalized_body
+    )
+
+
+ASSET_CANDIDATE_KEYWORDS = (
+    "download",
+    "zip",
+    "artifact",
+    "archive",
+    "output",
+    "xml",
+    "result",
+    "more",
+)
+DOWNLOAD_CANDIDATE_KEYWORDS = (
+    "download",
+    "zip",
+    "artifact",
+    "archive",
+    "output.xml",
+    "output",
+)
+
+
+def _candidate_blob(item: dict[str, str]) -> str:
+    return " ".join(
+        [
+            item.get("text", ""),
+            item.get("href", ""),
+            item.get("title", ""),
+            item.get("aria_label", ""),
+        ]
+    ).lower()
+
+
+def _matches_keywords(item: dict[str, str], keywords: tuple[str, ...]) -> bool:
+    blob = _candidate_blob(item)
+    return any(keyword in blob for keyword in keywords)
+
+
+def _extract_clickable_assets(page: Any) -> dict[str, list[dict[str, str]]]:
+    return page.evaluate(
+        """() => {
+            const normalize = value => (value || '').trim();
+            const links = Array.from(document.querySelectorAll('a')).map((element, index) => ({
+                kind: 'link',
+                index: String(index),
+                text: normalize(element.innerText || element.textContent),
+                href: element.href || element.getAttribute('href') || '',
+                title: normalize(element.getAttribute('title')),
+                aria_label: normalize(element.getAttribute('aria-label'))
+            }));
+            const buttons = Array.from(document.querySelectorAll('button, [role="button"]')).map((element, index) => ({
+                kind: 'button',
+                index: String(index),
+                text: normalize(element.innerText || element.textContent),
+                href: '',
+                title: normalize(element.getAttribute('title')),
+                aria_label: normalize(element.getAttribute('aria-label'))
+            }));
+            return { links, buttons };
+        }"""
+    )
+
+
+def _asset_summary(page: Any, max_items: int) -> dict[str, Any]:
+    assets = _extract_clickable_assets(page)
+    all_items = assets["links"] + assets["buttons"]
+    candidates = [item for item in all_items if _matches_keywords(item, ASSET_CANDIDATE_KEYWORDS)]
+    download_candidates = [item for item in candidates if _matches_keywords(item, DOWNLOAD_CANDIDATE_KEYWORDS)]
+
+    return {
+        "link_count": len(assets["links"]),
+        "button_count": len(assets["buttons"]),
+        "candidate_count": len(candidates),
+        "download_candidate_count": len(download_candidates),
+        "candidates": candidates[:max_items],
+        "download_candidates": download_candidates[:max_items],
+        "links_sample": assets["links"][:max_items],
+        "buttons_sample": assets["buttons"][:max_items],
+    }
+
+
+def _click_asset_candidate(page: Any, item: dict[str, str], timeout_ms: int) -> str | None:
+    selector = "a" if item["kind"] == "link" else 'button, [role="button"]'
+    try:
+        page.locator(selector).nth(int(item["index"])).click(timeout=timeout_ms)
+        return None
+    except Exception as exc:
+        return str(exc)
+
+
+def _open_more_menus(page: Any, timeout_ms: int) -> list[dict[str, str]]:
+    assets = _extract_clickable_assets(page)
+    all_items = assets["links"] + assets["buttons"]
+    more_items = [
+        item
+        for item in all_items
+        if item.get("text", "").strip().lower() == "more"
+        or item.get("aria_label", "").strip().lower() == "more"
+        or item.get("title", "").strip().lower() == "more"
+    ]
+    results: list[dict[str, str]] = []
+    for item in more_items[:3]:
+        error = _click_asset_candidate(page, item, timeout_ms)
+        page.wait_for_timeout(1000)
+        results.append({**item, "click_error": error or ""})
+    return results
+
+
+def _attempt_asset_downloads(
+    page: Any,
+    candidates: list[dict[str, str]],
+    *,
+    download_dir: Path,
+    timeout_ms: int,
+    max_attempts: int,
+) -> list[dict[str, str]]:
+    download_dir.mkdir(parents=True, exist_ok=True)
+    results: list[dict[str, str]] = []
+
+    for item in candidates[:max_attempts]:
+        selector = "a" if item["kind"] == "link" else 'button, [role="button"]'
+        locator = page.locator(selector).nth(int(item["index"]))
+        try:
+            with page.expect_download(timeout=timeout_ms) as download_info:
+                locator.click(timeout=timeout_ms)
+            download = download_info.value
+            output_path = download_dir / download.suggested_filename
+            download.save_as(str(output_path))
+            results.append(
+                {
+                    **item,
+                    "status": "downloaded",
+                    "suggested_filename": download.suggested_filename,
+                    "saved_path": str(output_path),
+                }
+            )
+        except Exception as exc:
+            results.append({**item, "status": "failed", "error": str(exc)})
+
+    return results
+
+
 def _read_log_by_clicking_link(
     page: Any,
     link_index: str,
@@ -210,6 +361,10 @@ def _read_log_by_clicking_link(
             "click_title": log_page.title(),
             "click_opened_new_page": bool(new_pages),
         }
+        if log_page.url.startswith("chrome-error://"):
+            return None, diagnostics, "Click opened a Chrome error page."
+        if not body_text.strip():
+            return None, diagnostics, "Click opened an empty page."
         return body_text, diagnostics, None
     except Exception as exc:
         return None, None, str(exc)
@@ -301,9 +456,26 @@ def command_extract_detail_log(args: argparse.Namespace) -> None:
                 "detail_response_status": response.status if response else None,
                 "detail_body_text_length": len(detail_body_text),
                 "detail_body_text_sample": detail_body_text[: args.sample_chars],
-                "log_link_count": len(log_links),
-                "log_links": log_links[: args.max_links],
             }
+            if _looks_like_sso_login(detail_page.url, detail_page.title(), detail_body_text):
+                _print_json(
+                    {
+                        "status": "session_expired",
+                        **detail_diagnostics,
+                        "reason": "Reporting Portal redirected to Microsoft SSO login page.",
+                        "log_link_count": 0,
+                        "log_links": [],
+                    }
+                )
+                detail_page.close()
+                return
+
+            detail_diagnostics.update(
+                {
+                    "log_link_count": len(log_links),
+                    "log_links": log_links[: args.max_links],
+                }
+            )
             if not log_links:
                 _print_json(
                     {
@@ -346,6 +518,7 @@ def command_extract_detail_log(args: argparse.Namespace) -> None:
                 **detail_diagnostics,
                 "selected_log_url": log_url,
                 "errors": errors,
+                "click_diagnostics": click_diagnostics,
                 "click_error": click_error,
             }
         )
@@ -364,6 +537,81 @@ def command_extract_detail_log(args: argparse.Namespace) -> None:
             "body_text_sample": body_text[: args.sample_chars],
             "failed_case_count": len(extract_failed_cases_from_text(body_text)),
             "failed_cases": _failed_case_payload(body_text),
+        }
+    )
+
+
+def command_inspect_detail_assets(args: argparse.Namespace) -> None:
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError as exc:
+        raise RuntimeError(
+            "Playwright is required for inspect-detail-assets. "
+            "Install it with `python -m pip install -r requirements.txt` and `python -m playwright install chromium`."
+        ) from exc
+
+    config = load_config(args.config)
+    timeout_ms = args.timeout_seconds * 1000
+    download_dir = Path(args.download_dir)
+
+    with sync_playwright() as playwright:
+        context = playwright.chromium.launch_persistent_context(
+            config.portal.profile_dir,
+            headless=not args.headed,
+            ignore_https_errors=True,
+            accept_downloads=True,
+            viewport={"width": 1800, "height": 1200},
+        )
+        try:
+            page = context.new_page()
+            response = page.goto(args.url, wait_until="domcontentloaded", timeout=timeout_ms)
+            page.wait_for_timeout(args.wait_seconds * 1000)
+            body_text = page.locator("body").inner_text(timeout=timeout_ms)
+            diagnostics = {
+                "detail_url": args.url,
+                "detail_final_url": page.url,
+                "detail_title": page.title(),
+                "detail_response_status": response.status if response else None,
+                "detail_body_text_length": len(body_text),
+                "detail_body_text_sample": body_text[: args.sample_chars],
+            }
+
+            if _looks_like_sso_login(page.url, page.title(), body_text):
+                _print_json(
+                    {
+                        "status": "session_expired",
+                        **diagnostics,
+                        "reason": "Reporting Portal redirected to Microsoft SSO login page.",
+                    }
+                )
+                return
+
+            before_more = _asset_summary(page, args.max_items)
+            opened_more = _open_more_menus(page, timeout_ms) if not args.no_open_more else []
+            after_more = _asset_summary(page, args.max_items)
+            download_results = []
+
+            if args.attempt_download:
+                download_results = _attempt_asset_downloads(
+                    page,
+                    after_more["download_candidates"],
+                    download_dir=download_dir,
+                    timeout_ms=timeout_ms,
+                    max_attempts=args.max_download_attempts,
+                )
+        finally:
+            context.close()
+
+    _print_json(
+        {
+            "status": "ok",
+            **diagnostics,
+            "opened_more": opened_more,
+            "before_more": before_more,
+            "after_more": after_more,
+            "attempt_download": args.attempt_download,
+            "download_dir": str(download_dir),
+            "download_results": download_results,
         }
     )
 
@@ -552,6 +800,59 @@ def build_parser() -> argparse.ArgumentParser:
         help="Disable clicking the Test Logs link when direct log URL navigation fails.",
     )
     detail_log_parser.set_defaults(func=command_extract_detail_log)
+
+    inspect_assets_parser = subparsers.add_parser(
+        "inspect-detail-assets",
+        help="Inspect a Reporting Portal detail page for download/zip/artifact entries.",
+    )
+    inspect_assets_parser.add_argument("--url", required=True, help="Reporting Portal detail URL.")
+    inspect_assets_parser.add_argument(
+        "--timeout-seconds",
+        type=int,
+        default=60,
+        help="Navigation, locator, and download timeout. Defaults to 60.",
+    )
+    inspect_assets_parser.add_argument(
+        "--wait-seconds",
+        type=int,
+        default=10,
+        help="Extra wait after domcontentloaded before inspecting the page. Defaults to 10.",
+    )
+    inspect_assets_parser.add_argument(
+        "--sample-chars",
+        type=int,
+        default=500,
+        help="Number of detail page text characters to include for debugging. Defaults to 500.",
+    )
+    inspect_assets_parser.add_argument(
+        "--max-items",
+        type=int,
+        default=30,
+        help="Maximum candidates, links, and buttons to print. Defaults to 30.",
+    )
+    inspect_assets_parser.add_argument(
+        "--no-open-more",
+        action="store_true",
+        help="Do not click More menus before collecting candidates.",
+    )
+    inspect_assets_parser.add_argument(
+        "--attempt-download",
+        action="store_true",
+        help="Click download-like candidates and save downloads.",
+    )
+    inspect_assets_parser.add_argument(
+        "--max-download-attempts",
+        type=int,
+        default=3,
+        help="Maximum download-like candidates to click when --attempt-download is used. Defaults to 3.",
+    )
+    inspect_assets_parser.add_argument(
+        "--download-dir",
+        default="/tmp/cit_crt_morning_triage_agent_downloads",
+        help="Directory for captured downloads. Defaults to /tmp/cit_crt_morning_triage_agent_downloads.",
+    )
+    inspect_assets_parser.add_argument("--headed", action="store_true", help="Run Chromium in headed mode.")
+    inspect_assets_parser.set_defaults(func=command_inspect_detail_assets)
 
     collect_parser = subparsers.add_parser(
         "collect-links",
