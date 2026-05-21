@@ -104,6 +104,32 @@ def _http_fallback_url(url: str) -> str | None:
     return urlunparse(parsed._replace(scheme="http"))
 
 
+def _drop_logs_prefix_url(url: str) -> str | None:
+    parsed = urlparse(url)
+    if not parsed.path.startswith("/logs/"):
+        return None
+    return urlunparse(parsed._replace(path=parsed.path.removeprefix("/logs")))
+
+
+def _candidate_log_urls(url: str, allow_http_fallback: bool) -> list[str]:
+    candidates = [url]
+    if allow_http_fallback:
+        http_url = _http_fallback_url(url)
+        if http_url:
+            candidates.append(http_url)
+
+        for candidate in list(candidates):
+            without_logs_prefix = _drop_logs_prefix_url(candidate)
+            if without_logs_prefix:
+                candidates.append(without_logs_prefix)
+
+    unique_candidates: list[str] = []
+    for candidate in candidates:
+        if candidate not in unique_candidates:
+            unique_candidates.append(candidate)
+    return unique_candidates
+
+
 def _read_log_body_with_fallback(
     context: Any,
     url: str,
@@ -112,10 +138,7 @@ def _read_log_body_with_fallback(
     wait_seconds: int,
     allow_http_fallback: bool,
 ) -> tuple[str | None, dict[str, Any] | None, list[dict[str, str]]]:
-    attempted_urls = [url]
-    fallback_url = _http_fallback_url(url) if allow_http_fallback else None
-    if fallback_url:
-        attempted_urls.append(fallback_url)
+    attempted_urls = _candidate_log_urls(url, allow_http_fallback=allow_http_fallback)
 
     errors: list[dict[str, str]] = []
 
@@ -133,6 +156,14 @@ def _read_log_body_with_fallback(
                 "response_content_type": response.headers.get("content-type") if response else None,
             }
             page.close()
+            if response and response.status >= 400:
+                errors.append(
+                    {
+                        "url": candidate_url,
+                        "error": f"HTTP {response.status}: {body_text[:200]}",
+                    }
+                )
+                continue
             return body_text, diagnostics, errors
         except Exception as exc:  # Playwright rewrites network failures into library-specific errors.
             errors.append({"url": candidate_url, "error": str(exc)})

@@ -321,6 +321,9 @@ effective_url: http://10.70.226.9/...
 body_text_length: 26
 failed_case_count: 0
 结论：HTTP fallback 已生效，但返回内容太短，不是完整 Robot log；下一步需要查看 response_status / response_content_type / body_text_sample 判断具体原因
+2026-05-21 15:10
+extract-log-url: HTTP fallback 返回 response_status=404，title=404 Not Found，body_text_sample=404 Not Found / nginx/1.20.1
+结论：内网日志服务器能连通，但 /logs/Auto/... 这个 HTTP 路径不存在；后续修正为继续尝试去掉 /logs 前缀的候选 URL，例如 http://10.70.226.9/Auto/...
 ```
 
 常见失败模式：
@@ -366,6 +369,26 @@ Page.goto: net::ERR_CONNECTION_CLOSED
 ```text
 extract-log-url 会自动从 https:// fallback 到 http://。
 如果 fallback 后仍失败，会输出 status=navigation_failed 和 errors，而不是 Python traceback。
+```
+
+### 内部 log.html HTTP 返回 404
+
+现象：
+
+```text
+response_status = 404
+title = 404 Not Found
+body_text_sample = 404 Not Found / nginx
+```
+
+处理：
+
+```text
+extract-log-url 会继续尝试去掉 /logs 前缀的候选 URL。
+例如：
+https://10.70.226.9/logs/Auto/...
+-> http://10.70.226.9/logs/Auto/...
+-> http://10.70.226.9/Auto/...
 ```
 
 ## 常见失败模式

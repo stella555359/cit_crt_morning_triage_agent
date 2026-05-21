@@ -58,6 +58,8 @@ The first validation hit `Page.goto: net::ERR_CONNECTION_CLOSED` on the internal
 
 Follow-up validation at `2026-05-21 15:05` confirmed that HTTPS fails with `ERR_CONNECTION_CLOSED` and HTTP fallback succeeds, but the response body is only 26 characters and `failed_case_count` is 0. The command now outputs `response_status`, `response_content_type`, `final_url`, `title`, and `body_text_sample` to identify whether the log server returned a short error page, redirect, or placeholder.
 
+Follow-up validation at `2026-05-21 15:10` confirmed the short response is `404 Not Found` from nginx. The internal log host is reachable, but `http://10.70.226.9/logs/Auto/...` is not a valid HTTP path. The command now continues after HTTP 4xx responses and tries a `/logs`-prefix-stripped candidate such as `http://10.70.226.9/Auto/...`.
+
 ```text
 deploy/server_runtime_setup.md
 ```
@@ -82,6 +84,7 @@ collect-links
 extract-log-url
 -> open log.html URL with Playwright
 -> if HTTPS internal log URL is closed, retry with HTTP
+-> if HTTP /logs path returns 404, retry without the /logs prefix
 -> wait for Robot log text
 -> extract failed case evidence
 -> classify evidence with first-pass rules
@@ -205,6 +208,12 @@ body_text_length is very small, such as 26
 ```
 
 This means navigation technically succeeded, but the response is not the full Robot log. Inspect `response_status`, `response_content_type`, `final_url`, `title`, and `body_text_sample` to decide whether the URL is blocked, redirected, missing, or requires a different access path.
+
+```text
+response_status = 404 and body_text_sample contains nginx
+```
+
+The internal log host is reachable but the path is wrong for that protocol. `extract-log-url` now retries a candidate URL without the `/logs` prefix.
 
 ## Review Questions
 
