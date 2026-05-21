@@ -230,6 +230,12 @@ PYTHONPATH=agent python -m triage_agent health
 PYTHONPATH=agent python -m triage_agent collect-links
 ```
 
+如果只想验证单个 scope，并限制输出行数，使用：
+
+```bash
+PYTHONPATH=agent python -m triage_agent collect-links --scope cit_7_5_UTE5G402T273 --max-rows 5
+```
+
 预期结果：
 
 ```text
@@ -238,6 +244,7 @@ session_status 是 ok
 每个 scope 输出 row_count
 如果 filtered page 上有可见 Test Logs，则 rows 中包含 log_url
 如果 report detail 链接在同一行可见，则 rows 中包含 test_instance_id
+rows 中包含 row_index 和 row_text，便于判断是否取到了同一行字段
 ```
 
 已验证结果：
@@ -248,6 +255,9 @@ health: ok
 collect-links: 可以从 cit_7_5_UTE5G402T273 抓到 Test Logs 链接
 发现问题：第一版全页面链接配对会产生重复 log_url，且 report_hash 解析不准确
 后续修正：collector 改为优先按 AG Grid row 提取同一行链接，并输出 test_instance_id
+2026-05-21 14:37
+collect-links 新版验证：test_instance_id 已输出，但仍有同一 test_instance_id 配到多条 log_url 的现象
+后续修正：collector 按 AG Grid row-index 合并同一行的 pinned/center DOM 片段，并增加 row_text、row_index、--max-rows 调试参数
 ```
 
 ## 常见失败模式

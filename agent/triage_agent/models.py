@@ -90,6 +90,8 @@ class TestRunRowLinks:
     log_url: str
     report_detail_url: str | None = None
     test_instance_id: str | None = None
+    row_index: str | None = None
+    row_text: str | None = None
 
 
 @dataclass(frozen=True)

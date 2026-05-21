@@ -1,0 +1,14 @@
+---
+description: Keep project Git operation notes in deploy/github_push.md
+alwaysApply: true
+---
+
+# Git 操作文档规则
+
+- 本项目的本地 Windows 和 Debian 服务器 Git 操作统一记录到 `deploy/github_push.md`。
+- 如果新增或修改 `git init`、`git commit`、`git remote`、`git push`、`git clone`、`git pull`、代理参数、GitHub 仓库设置等命令，需要同步更新 `deploy/github_push.md`。
+- `deploy/github_push.md` 是本项目唯一的 Git 操作 runbook。
+- Git 操作文档请使用中文编写。
+- 服务器 Git 命令优先使用单次代理参数，例如 `git -c http.proxy=... -c https.proxy=... clone ...`，避免代理设置变成隐藏的机器级状态。
+- 不要把 secret、token、密码、个人代理凭据写入文档。
+- 除非用户明确要求并确认目标分支和原因，不要 force push，也不要推荐破坏性 Git 命令。

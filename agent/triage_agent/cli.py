@@ -138,6 +138,7 @@ def command_collect_links(args: argparse.Namespace) -> None:
                     url,
                     timeout_seconds=config.portal.health_timeout_seconds,
                 )
+                output_rows = rows[: args.max_rows] if args.max_rows else rows
                 payload["scopes"].append(
                     {
                         "scope": scope.name,
@@ -145,7 +146,7 @@ def command_collect_links(args: argparse.Namespace) -> None:
                         "testline": scope.testline,
                         "url": url,
                         "row_count": len(rows),
-                        "rows": [asdict(row) for row in rows],
+                        "rows": [asdict(row) for row in output_rows],
                     }
                 )
         finally:
@@ -186,6 +187,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Health check the session, then collect Test Logs links from configured scopes.",
     )
     collect_parser.add_argument("--scope", help="Optional scope name from triage_config.json.")
+    collect_parser.add_argument(
+        "--max-rows",
+        type=int,
+        help="Limit rows printed per scope for debugging. row_count still shows the full count.",
+    )
     collect_parser.add_argument("--headed", action="store_true", help="Run Chromium in headed mode.")
     collect_parser.set_defaults(func=command_collect_links)
 

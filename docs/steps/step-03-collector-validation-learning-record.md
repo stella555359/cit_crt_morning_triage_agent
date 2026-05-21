@@ -20,6 +20,8 @@ global page links
 
 This step improves the collector to prefer AG Grid row-level extraction and replaces `report_hash` with `test_instance_id`.
 
+Follow-up validation at `2026-05-21 14:37` confirmed that `test_instance_id` is now emitted, but the collector can still pair the same `test_instance_id` with multiple `log_url` values. This indicates AG Grid may render pinned/center DOM fragments separately or the row-level extraction still needs more row context.
+
 ## Files Changed And Why
 
 ```text
@@ -34,6 +36,14 @@ agent/triage_agent/portal_collector.py
 
 Added row-level extraction from `.ag-row`, so `Test Logs` and detail links are paired from the same table row when possible. The collector still keeps the older global-link fallback if row-level extraction returns no rows.
 
+The follow-up fix groups `.ag-row` fragments by `row-index`, adds `row_text` and `row_index` to output, and keeps row text truncated for debugging.
+
+```text
+agent/triage_agent/cli.py
+```
+
+Adds `--max-rows` for `collect-links`, so server validation can inspect a small sample without printing the full table output.
+
 ```text
 deploy/server_runtime_setup.md
 ```
@@ -47,6 +57,7 @@ collect-links
 -> health check
 -> open filtered URL
 -> extract .ag-row links
+-> group AG Grid fragments by row-index
 -> find log.html or Test Logs link in the same row
 -> find test_instance_id detail link in the same row
 -> deduplicate by log_url + test_instance_id/detail_url
@@ -59,6 +70,8 @@ collect-links
 log_url
 report_detail_url
 test_instance_id
+row_index
+row_text
 ```
 
 ## Server-Side Validation Commands
@@ -74,12 +87,19 @@ git -c http.proxy=http://10.144.1.10:8080 \
 PYTHONPATH=agent python -m triage_agent collect-links
 ```
 
+For focused debugging:
+
+```bash
+PYTHONPATH=agent python -m triage_agent collect-links --scope cit_7_5_UTE5G402T273 --max-rows 5
+```
+
 Expected result:
 
 ```text
 session_status is ok
 rows contain log_url
 rows contain test_instance_id when Reporting Portal detail links are available in the same AG Grid row
+sample rows contain row_index and row_text
 duplicate rows are reduced compared with the first validation
 ```
 

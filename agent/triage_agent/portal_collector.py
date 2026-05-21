@@ -75,6 +75,8 @@ def pair_log_and_detail_links(links: list[TestRunLink]) -> list[TestRunRowLinks]
                 log_url=link.href,
                 report_detail_url=detail_link.href if detail_link else None,
                 test_instance_id=_test_instance_id_from_url(detail_link.href if detail_link else None),
+                row_index=None,
+                row_text=None,
             )
         )
 
@@ -83,15 +85,41 @@ def pair_log_and_detail_links(links: list[TestRunLink]) -> list[TestRunRowLinks]
 
 def extract_row_links_from_page(page: object) -> list[TestRunRowLinks]:
     ag_rows = page.locator(".ag-row").evaluate_all(
-        """rows => rows.map((row, rowIndex) => ({
-            rowIndex,
-            text: (row.innerText || row.textContent || '').trim(),
-            links: Array.from(row.querySelectorAll('a')).map((element, linkIndex) => ({
-                index: linkIndex,
-                text: (element.innerText || element.textContent || '').trim(),
-                href: element.href || element.getAttribute('href') || ''
-            })).filter(link => link.href)
-        })).filter(row => row.links.length > 0)"""
+        """rows => {
+            const groupedRows = new Map();
+            rows.forEach((row, fallbackIndex) => {
+                const rowKey = row.getAttribute('row-index')
+                    || row.getAttribute('aria-rowindex')
+                    || row.getAttribute('data-row-index')
+                    || String(fallbackIndex);
+                const existing = groupedRows.get(rowKey) || {
+                    rowIndex: rowKey,
+                    textParts: [],
+                    links: []
+                };
+                const text = (row.innerText || row.textContent || '').trim();
+                if (text) {
+                    existing.textParts.push(text);
+                }
+                Array.from(row.querySelectorAll('a')).forEach((element, linkIndex) => {
+                    const href = element.href || element.getAttribute('href') || '';
+                    if (!href) {
+                        return;
+                    }
+                    existing.links.push({
+                        index: existing.links.length + linkIndex,
+                        text: (element.innerText || element.textContent || '').trim(),
+                        href
+                    });
+                });
+                groupedRows.set(rowKey, existing);
+            });
+            return Array.from(groupedRows.values()).map(row => ({
+                rowIndex: row.rowIndex,
+                text: Array.from(new Set(row.textParts)).join('\\n'),
+                links: row.links
+            })).filter(row => row.links.length > 0);
+        }"""
     )
 
     rows: list[TestRunRowLinks] = []
@@ -110,6 +138,8 @@ def extract_row_links_from_page(page: object) -> list[TestRunRowLinks]:
                     log_url=log_link.href,
                     report_detail_url=detail_link.href if detail_link else None,
                     test_instance_id=_test_instance_id_from_url(detail_link.href if detail_link else None),
+                    row_index=str(ag_row["rowIndex"]) if ag_row.get("rowIndex") is not None else None,
+                    row_text=ag_row.get("text", "")[:1000],
                 )
             )
 
