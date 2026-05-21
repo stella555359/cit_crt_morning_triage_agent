@@ -12,7 +12,7 @@ from .classifier import classify_failed_case
 from .config import DEFAULT_CONFIG_PATH, load_config
 from .log_extractor import extract_failed_cases_from_text
 from .models import PortalSessionStatus
-from .portal_collector import collect_row_links_from_url
+from .portal_collector import collect_row_links_from_url, filter_rows_for_triage
 from .portal_health import check_portal_session
 from .portal_urls import build_test_runs_url
 from .time_windows import scope_window
@@ -95,6 +95,7 @@ def command_collect_links(args: argparse.Namespace) -> None:
         ) from exc
 
     config = load_config(args.config)
+    report_date = date.fromisoformat(args.report_date) if args.report_date else date.today()
     scopes = [scope for scope in config.scopes if args.scope in {None, scope.name}]
     if not scopes:
         raise ValueError(f"No matching scope found: {args.scope}")
@@ -133,19 +134,33 @@ def command_collect_links(args: argparse.Namespace) -> None:
         try:
             for scope in scopes:
                 url = build_test_runs_url(config.portal, scope)
+                window = scope_window(
+                    regression_status=scope.regression_status,
+                    report_date=report_date,
+                    rules=config.time_rules,
+                )
                 rows = collect_row_links_from_url(
                     context,
                     url,
                     timeout_seconds=config.portal.health_timeout_seconds,
                 )
-                output_rows = rows[: args.max_rows] if args.max_rows else rows
+                filtered_rows = filter_rows_for_triage(rows, window) if args.triage_only else rows
+                output_rows = filtered_rows[: args.max_rows] if args.max_rows else filtered_rows
                 payload["scopes"].append(
                     {
                         "scope": scope.name,
                         "regression_status": scope.regression_status.value,
                         "testline": scope.testline,
+                        "window": {
+                            "name": window.name,
+                            "start": window.start.isoformat(),
+                            "end": window.end.isoformat(),
+                            "display_label": window.display_label,
+                        },
                         "url": url,
-                        "row_count": len(rows),
+                        "raw_row_count": len(rows),
+                        "row_count": len(filtered_rows),
+                        "triage_only": args.triage_only,
                         "rows": [asdict(row) for row in output_rows],
                     }
                 )
@@ -187,6 +202,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Health check the session, then collect Test Logs links from configured scopes.",
     )
     collect_parser.add_argument("--scope", help="Optional scope name from triage_config.json.")
+    collect_parser.add_argument(
+        "--report-date",
+        help="Morning report date in YYYY-MM-DD. Defaults to today.",
+    )
+    collect_parser.add_argument(
+        "--triage-only",
+        action="store_true",
+        help="Only print rows inside the configured time window whose result/origin_result is not analyzed.",
+    )
     collect_parser.add_argument(
         "--max-rows",
         type=int,

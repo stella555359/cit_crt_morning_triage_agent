@@ -22,6 +22,8 @@ This step improves the collector to prefer AG Grid row-level extraction and repl
 
 Follow-up validation at `2026-05-21 14:37` confirmed that `test_instance_id` is now emitted, but the collector can still pair the same `test_instance_id` with multiple `log_url` values. This indicates AG Grid may render pinned/center DOM fragments separately or the row-level extraction still needs more row context.
 
+Follow-up validation at `2026-05-21 14:47` confirmed that `row_index`, `row_text`, `test_instance_id`, and `log_url` can now be aligned to the same table row. The sample rows are historical `passed/passed` results, so the next requirement is to parse structured row fields and filter to the target triage set.
+
 ## Files Changed And Why
 
 ```text
@@ -37,6 +39,8 @@ agent/triage_agent/portal_collector.py
 Added row-level extraction from `.ag-row`, so `Test Logs` and detail links are paired from the same table row when possible. The collector still keeps the older global-link fallback if row-level extraction returns no rows.
 
 The follow-up fix groups `.ag-row` fragments by `row-index`, adds `row_text` and `row_index` to output, and keeps row text truncated for debugging.
+
+The next fix parses `robotcase`, `end_time`, `result`, `origin_result`, `build`, and `run_type` from row text and log URL. It also adds `--triage-only` to filter rows by the configured CIT/CRT time window and `not analyzed` status.
 
 ```text
 agent/triage_agent/cli.py
@@ -60,6 +64,8 @@ collect-links
 -> group AG Grid fragments by row-index
 -> find log.html or Test Logs link in the same row
 -> find test_instance_id detail link in the same row
+-> parse robotcase/end_time/result/origin_result/build/run_type
+-> optionally filter by time window and not analyzed status
 -> deduplicate by log_url + test_instance_id/detail_url
 -> JSON output
 ```
@@ -72,6 +78,12 @@ report_detail_url
 test_instance_id
 row_index
 row_text
+robotcase
+end_time
+result
+origin_result
+build
+run_type
 ```
 
 ## Server-Side Validation Commands
@@ -93,6 +105,12 @@ For focused debugging:
 PYTHONPATH=agent python -m triage_agent collect-links --scope cit_7_5_UTE5G402T273 --max-rows 5
 ```
 
+For focused triage filtering:
+
+```bash
+PYTHONPATH=agent python -m triage_agent collect-links --scope cit_7_5_UTE5G402T273 --triage-only --report-date 2026-05-21 --max-rows 5
+```
+
 Expected result:
 
 ```text
@@ -100,6 +118,8 @@ session_status is ok
 rows contain log_url
 rows contain test_instance_id when Reporting Portal detail links are available in the same AG Grid row
 sample rows contain row_index and row_text
+sample rows contain robotcase, end_time, result, origin_result, build, and run_type
+with --triage-only, row_count only includes target-window rows whose result/origin_result is not analyzed
 duplicate rows are reduced compared with the first validation
 ```
 
@@ -123,3 +143,4 @@ This means the detail link is not present in the same `.ag-row` DOM node. The ne
 - Are duplicate `log_url` rows reduced?
 - For a visible row in Reporting Portal, does the emitted `test_instance_id` match the row detail link?
 - Do we need to extract row text fields next, such as result status, origin result, build, and case name?
+- Does `--triage-only` return only yellow not analyzed rows for the target morning window?

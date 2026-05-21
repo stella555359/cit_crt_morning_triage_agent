@@ -92,6 +92,12 @@ class TestRunRowLinks:
     test_instance_id: str | None = None
     row_index: str | None = None
     row_text: str | None = None
+    robotcase: str | None = None
+    end_time: datetime | None = None
+    result: str | None = None
+    origin_result: str | None = None
+    build: str | None = None
+    run_type: str | None = None
 
 
 @dataclass(frozen=True)

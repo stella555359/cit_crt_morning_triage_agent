@@ -236,6 +236,18 @@ PYTHONPATH=agent python -m triage_agent collect-links
 PYTHONPATH=agent python -m triage_agent collect-links --scope cit_7_5_UTE5G402T273 --max-rows 5
 ```
 
+如果只想看当前时间窗口内需要分析的结果，使用：
+
+```bash
+PYTHONPATH=agent python -m triage_agent collect-links --scope cit_7_5_UTE5G402T273 --triage-only --max-rows 5
+```
+
+也可以指定 Morning Report 日期：
+
+```bash
+PYTHONPATH=agent python -m triage_agent collect-links --scope cit_7_5_UTE5G402T273 --triage-only --report-date 2026-05-21 --max-rows 5
+```
+
 预期结果：
 
 ```text
@@ -245,6 +257,9 @@ session_status 是 ok
 如果 filtered page 上有可见 Test Logs，则 rows 中包含 log_url
 如果 report detail 链接在同一行可见，则 rows 中包含 test_instance_id
 rows 中包含 row_index 和 row_text，便于判断是否取到了同一行字段
+rows 中包含 robotcase、end_time、result、origin_result、build、run_type
+raw_row_count 表示页面原始行数
+row_count 表示当前命令输出范围内的行数；如果加了 --triage-only，则是过滤后的待分析行数
 ```
 
 已验证结果：
@@ -258,6 +273,9 @@ collect-links: 可以从 cit_7_5_UTE5G402T273 抓到 Test Logs 链接
 2026-05-21 14:37
 collect-links 新版验证：test_instance_id 已输出，但仍有同一 test_instance_id 配到多条 log_url 的现象
 后续修正：collector 按 AG Grid row-index 合并同一行的 pinned/center DOM 片段，并增加 row_text、row_index、--max-rows 调试参数
+2026-05-21 14:47
+collect-links row_text 验证：row_index、row_text、test_instance_id、log_url 已能对应同一行；样例行为 passed/passed 历史数据
+后续修正：从 row_text 解析 robotcase、end_time、result、origin_result、build、run_type，并新增 --triage-only 按时间窗口和 not analyzed 状态过滤
 ```
 
 ## 常见失败模式
