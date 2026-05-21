@@ -40,6 +40,7 @@ Validated:
 - Filtered URL using `test_line` works.
 - `Test Logs` links can be extracted.
 - `log.html` can be opened and read.
+- On `10.57.159.149` / `tl813-agent`, `extract-log-url` succeeded with default headless Playwright, headed Chromium channel, and headed Chrome channel for the same `log.html`.
 - Report zip download can be triggered as a fallback.
 
 Added finding:
@@ -53,8 +54,7 @@ Added finding:
 
 Not yet validated:
 
-- Stable extraction of case-level `Status: FAIL`, `Message`, failed keyword, failure text, and keyword chain from `log.html`.
-- 在 `10.57.159.149` / `tl813-agent` 上执行 `extract-log-url`，确认 Playwright headless 能绕过证书告警并读取 `log.html` 正文。
+- Stable extraction of case-level `Status: FAIL`, `Message`, failed keyword, failure text, and keyword chain from an actual failed/not analyzed `log.html`.
 
 Implemented locally in the project:
 

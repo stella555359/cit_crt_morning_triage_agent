@@ -566,6 +566,51 @@ status = ok
 body_text_length > 0
 ```
 
+已验证成功结果（2026-05-21）：
+
+```text
+同一个 log.html URL 在 10.57.159.149 / tl813-agent 上以下三种方式均成功：
+1. 默认 headless Playwright：extract-log-url --url ...
+2. headed Chromium channel：extract-log-url --headed --browser-channel chromium --url ...
+3. headed Chrome channel：extract-log-url --headed --browser-channel chrome --url ...
+```
+
+成功输出示例：
+
+```text
+status = ok
+headless = true
+browser_channel = playwright-default
+response_status = 200
+body_text_length = 12258
+failed_case_count = 0
+```
+
+注意：
+
+```text
+当前 CB010887_cases/log.html 是 passed log，页面统计 Total=1 / Pass=1 / Fail=0。
+因此 failed_case_count=0 是预期结果，不代表解析器失败。
+下一步需要换实际 failed/not analyzed 的 log_url 验证 failed case evidence 提取。
+```
+
+下一步从 Reporting Portal 收集实际待分析行：
+
+```bash
+PYTHONPATH=agent python -m triage_agent health
+PYTHONPATH=agent python -m triage_agent collect-links \
+  --triage-only \
+  --report-date 2026-05-21 \
+  --max-rows 5
+```
+
+从输出里复制 `result/origin_result` 为 failed/not analyzed 的 `log_url`，再执行：
+
+```bash
+PYTHONPATH=agent python -m triage_agent extract-log-url \
+  --url "<failed_or_not_analyzed_log_url>"
+```
+
 因此后续实现分为两条路线：
 
 ```text

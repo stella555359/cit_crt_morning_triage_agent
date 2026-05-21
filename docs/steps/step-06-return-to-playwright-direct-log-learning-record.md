@@ -102,6 +102,35 @@ failed_case_count 有输出
 failed_cases 在日志存在 failed case 时不为空
 ```
 
+已验证成功结果（2026-05-21）：
+
+```text
+同一个 CB010887_cases/log.html URL 在 10.57.159.149 / tl813-agent 上三种方式均成功：
+1. 默认 headless Playwright
+2. headed Chromium channel
+3. headed Chrome channel
+```
+
+成功输出关键字段：
+
+```text
+status = ok
+headless = true
+browser_channel = playwright-default
+response_status = 200
+response_content_type = text/html
+body_text_length = 12258
+failed_case_count = 0
+```
+
+解释：
+
+```text
+该 CB010887_cases/log.html 是 passed log。
+页面统计 Total=1 / Pass=1 / Fail=0。
+因此 failed_case_count=0 是正常结果，不是解析失败。
+```
+
 如果先验证 Reporting Portal 到 log URL 的完整链路：
 
 ```bash
@@ -114,6 +143,13 @@ PYTHONPATH=agent python -m triage_agent collect-links \
 ```
 
 再从输出中选择一条 `log_url` 执行 `extract-log-url`。
+
+下一步验证重点：
+
+```text
+必须选择实际 failed/not analyzed 的 log_url。
+验证目标从“能否打开 log.html”转为“能否提取 failed case evidence”。
+```
 
 ## 常见失败模式
 
@@ -167,4 +203,50 @@ failed_case_count = 0
 2. tl813-agent 上的 Playwright headless 是否能像手工 Chrome 一样打开 log.html？
 3. extract-log-url 是否能输出 body_text_length 和 failed_case_count？
 4. 如果可以，下一步是否回到 collector -> log extractor -> classifier 的完整 Morning Triage 链路？
+```
+
+## 日终进度记录
+
+2026-05-21 收尾状态：
+
+```text
+1. 邮件结果源方案已探索，但用户决定暂时放弃，不作为主路线。
+2. 项目主路线恢复为 Playwright + Reporting Portal + 直接读取 log.html。
+3. 已确认 10.57.159.149 / tl813-agent 是当前优先部署和验证服务器。
+4. 在 tl813-agent 上，同一个 CB010887_cases/log.html 使用以下三种命令均成功：
+   - extract-log-url --url ...
+   - extract-log-url --headed --browser-channel chromium --url ...
+   - extract-log-url --headed --browser-channel chrome --url ...
+5. 成功输出显示 status=ok、response_status=200、body_text_length=12258。
+6. 当前样例是 passed log，所以 failed_case_count=0 属于预期结果。
+```
+
+明天继续的第一步：
+
+```bash
+cd /opt/cit_crt_morning_triage_agent
+source .venv/bin/activate
+PYTHONPATH=agent python -m triage_agent health
+PYTHONPATH=agent python -m triage_agent collect-links \
+  --triage-only \
+  --report-date 2026-05-21 \
+  --max-rows 5
+```
+
+然后从输出中选择实际 `failed / not analyzed` 的 `log_url`：
+
+```bash
+PYTHONPATH=agent python -m triage_agent extract-log-url \
+  --url "<failed_or_not_analyzed_log_url>"
+```
+
+明天验证目标：
+
+```text
+从“能打开 log.html”进入到“能提取 failed case evidence”：
+- case_message
+- failed_keyword
+- failure_text
+- keyword_chain
+- classification
 ```
