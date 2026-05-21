@@ -225,7 +225,11 @@ def _download_report_zip(
     page = context.new_page()
     try:
         with page.expect_download(timeout=timeout_ms) as download_info:
-            page.goto(download_url, wait_until="domcontentloaded", timeout=timeout_ms)
+            try:
+                page.goto(download_url, wait_until="domcontentloaded", timeout=timeout_ms)
+            except Exception as exc:
+                if "Download is starting" not in str(exc):
+                    raise
         download = download_info.value
         output_path = download_dir / download.suggested_filename
         download.save_as(str(output_path))

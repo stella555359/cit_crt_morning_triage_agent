@@ -103,6 +103,12 @@ results.status = failed
 
 The direct `/at/test-reports/<report_id>/download/` endpoint did not trigger a browser download. Verify the report id and session state.
 
+```text
+Page.goto: Download is starting
+```
+
+This is normal for a download URL in Playwright. It means the navigation triggered a browser download. `download-report-zip` now ignores this specific navigation exception and reads `download_info.value` to save the file.
+
 Validated result at `2026-05-21 16:27`:
 
 ```text

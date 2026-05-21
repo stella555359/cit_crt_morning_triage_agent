@@ -555,6 +555,9 @@ results.saved_path = /tmp/cit_crt_morning_triage_agent_downloads/robot_report.zi
 废弃方向验证：detail 页面没有可见 zip/download/artifact 按钮
 补充发现：初始计划文档中记录过 /at/test-reports/<report_id>/download/ 曾成功下载 robot_report.zip
 最终修正：移除 inspect-detail-assets 相关代码，仅保留 download-report-zip 命令，直接构造并验证 Reporting Portal report zip 下载入口
+2026-05-21 16:41
+download-report-zip 首次验证：Playwright 返回 Page.goto: Download is starting
+结论：这不是下载失败，而是下载型 URL 触发浏览器下载时的正常行为；代码已改为忽略该异常并继续读取 download_info.value 保存文件
 ```
 
 ## 常见失败模式
