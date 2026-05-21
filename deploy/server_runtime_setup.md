@@ -546,6 +546,37 @@ results.suggested_filename = robot_report.zip
 results.saved_path = /tmp/cit_crt_morning_triage_agent_downloads/robot_report.zip
 ```
 
+如果下载解压后只有 `reporting_portal.json`，可以先解析这个 JSON：
+
+```bash
+PYTHONPATH=agent python -m triage_agent extract-report-json \
+  --file /tmp/cit_crt_morning_triage_agent_downloads/robot_report.zip
+```
+
+也可以解析已解压的文件：
+
+```bash
+PYTHONPATH=agent python -m triage_agent extract-report-json \
+  --file docs/reporting_portal.json
+```
+
+预期输出：
+
+```text
+suite_count
+test_case_count
+failed_case_count
+failed_cases
+```
+
+说明：
+
+```text
+reporting_portal.json 是 Reporting Portal 上传用的结构化结果摘要，不是完整 raw log.html。
+如果 failed case 中包含 fail_message、steps、test_exception_message 等字段，可以作为 Plan B 的解析来源。
+如果 failed_case_count=0，说明该 zip 对应的 report 没有失败 case，或 JSON 中没有失败细节。
+```
+
 已验证结果：
 
 ```text
@@ -558,6 +589,9 @@ results.saved_path = /tmp/cit_crt_morning_triage_agent_downloads/robot_report.zi
 2026-05-21 16:41
 download-report-zip 首次验证：Playwright 返回 Page.goto: Download is starting
 结论：这不是下载失败，而是下载型 URL 触发浏览器下载时的正常行为；代码已改为忽略该异常并继续读取 download_info.value 保存文件
+2026-05-21
+下载解压结果：zip 中只有 reporting_portal.json
+结论：Plan B 下载到的是结构化 Reporting Portal JSON 摘要，不是完整 log.html/output.xml；新增 extract-report-json 命令，用于判断该 JSON 是否包含 failed case 的 fail_message/steps/exception 证据
 ```
 
 ## 常见失败模式

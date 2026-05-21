@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import zipfile
 from dataclasses import asdict
 from datetime import date
 from enum import Enum
@@ -88,6 +89,87 @@ def command_extract_log(args: argparse.Namespace) -> None:
         )
 
     _print_json(payload)
+
+
+def _load_reporting_portal_json(path: str | Path, encoding: str) -> tuple[Any, str]:
+    source_path = Path(path)
+    if source_path.suffix.lower() == ".zip":
+        with zipfile.ZipFile(source_path) as archive:
+            json_members = [
+                name
+                for name in archive.namelist()
+                if name.endswith("reporting_portal.json") or name.endswith(".json")
+            ]
+            if not json_members:
+                raise ValueError(f"No JSON file found in {source_path}")
+            selected_member = "reporting_portal.json" if "reporting_portal.json" in json_members else json_members[0]
+            with archive.open(selected_member) as json_file:
+                return json.loads(json_file.read().decode(encoding)), selected_member
+
+    return json.loads(source_path.read_text(encoding=encoding)), str(source_path)
+
+
+def _case_failure_fields(test_case: dict[str, Any]) -> dict[str, Any]:
+    fields = {
+        "name": test_case.get("name"),
+        "suite_path": test_case.get("suite_path"),
+        "result": test_case.get("result"),
+        "starttime": test_case.get("starttime"),
+        "endtime": test_case.get("endtime"),
+        "fail_message": test_case.get("fail_message"),
+        "steps": test_case.get("steps") or [],
+        "setup_exception": test_case.get("setup_exception"),
+        "setup_exception_message": test_case.get("setup_exception_message"),
+        "test_exception": test_case.get("test_exception"),
+        "test_exception_message": test_case.get("test_exception_message"),
+        "teardown_exception": test_case.get("teardown_exception"),
+        "teardown_exception_message": test_case.get("teardown_exception_message"),
+        "build": test_case.get("build"),
+        "links": test_case.get("links") or {},
+    }
+    return fields
+
+
+def _is_failed_reporting_case(test_case: dict[str, Any]) -> bool:
+    result = str(test_case.get("result") or "").strip().lower()
+    failure_fields = _case_failure_fields(test_case)
+    has_failure_text = any(
+        bool(failure_fields.get(field))
+        for field in [
+            "fail_message",
+            "setup_exception",
+            "setup_exception_message",
+            "test_exception",
+            "test_exception_message",
+            "teardown_exception",
+            "teardown_exception_message",
+        ]
+    )
+    return result not in {"", "passed", "pass"} or has_failure_text or bool(failure_fields["steps"])
+
+
+def command_extract_report_json(args: argparse.Namespace) -> None:
+    data, source = _load_reporting_portal_json(args.file, args.encoding)
+    suites = data if isinstance(data, list) else [data]
+    failed_cases: list[dict[str, Any]] = []
+    total_cases = 0
+
+    for suite in suites:
+        test_cases = suite.get("test_cases", []) if isinstance(suite, dict) else []
+        total_cases += len(test_cases)
+        for test_case in test_cases:
+            if _is_failed_reporting_case(test_case):
+                failed_cases.append(_case_failure_fields(test_case))
+
+    _print_json(
+        {
+            "source": source,
+            "suite_count": len(suites),
+            "test_case_count": total_cases,
+            "failed_case_count": len(failed_cases),
+            "failed_cases": failed_cases[: args.max_cases],
+        }
+    )
 
 
 def _failed_case_payload(log_text: str) -> list[dict[str, Any]]:
@@ -611,6 +693,20 @@ def build_parser() -> argparse.ArgumentParser:
     extract_parser.add_argument("--file", required=True, help="Path to a saved log.html text or HTML file.")
     extract_parser.add_argument("--encoding", default="utf-8", help="File encoding. Defaults to utf-8.")
     extract_parser.set_defaults(func=command_extract_log)
+
+    report_json_parser = subparsers.add_parser(
+        "extract-report-json",
+        help="Extract failed case summary from reporting_portal.json or a zip containing it.",
+    )
+    report_json_parser.add_argument("--file", required=True, help="Path to reporting_portal.json or robot_report.zip.")
+    report_json_parser.add_argument("--encoding", default="utf-8", help="JSON encoding. Defaults to utf-8.")
+    report_json_parser.add_argument(
+        "--max-cases",
+        type=int,
+        default=20,
+        help="Maximum failed cases to print. Defaults to 20.",
+    )
+    report_json_parser.set_defaults(func=command_extract_report_json)
 
     extract_url_parser = subparsers.add_parser(
         "extract-log-url",
