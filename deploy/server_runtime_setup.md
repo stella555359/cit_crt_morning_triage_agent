@@ -324,6 +324,9 @@ failed_case_count: 0
 2026-05-21 15:10
 extract-log-url: HTTP fallback 返回 response_status=404，title=404 Not Found，body_text_sample=404 Not Found / nginx/1.20.1
 结论：内网日志服务器能连通，但 /logs/Auto/... 这个 HTTP 路径不存在；后续修正为继续尝试去掉 /logs 前缀的候选 URL，例如 http://10.70.226.9/Auto/...
+2026-05-21 15:18
+extract-log-url: HTTPS / HTTP / 去掉 /logs 前缀的候选 URL 均失败，直接访问列表页 log_url 不可用
+后续修正：新增 extract-detail-log，改为打开 reporting_portal report_detail_url，从 detail 页面查找 Test Logs/log.html 链接，再尝试解析
 ```
 
 常见失败模式：
@@ -389,6 +392,23 @@ extract-log-url 会继续尝试去掉 /logs 前缀的候选 URL。
 https://10.70.226.9/logs/Auto/...
 -> http://10.70.226.9/logs/Auto/...
 -> http://10.70.226.9/Auto/...
+```
+
+如果所有候选 URL 都失败，说明列表页里的 `log_url` 可能不是服务器可直接访问的最终地址。此时改用 `report_detail_url` 验证：
+
+```bash
+PYTHONPATH=agent python -m triage_agent extract-detail-log \
+  --url "https://rep-portal.ext.net.nokia.com/reports/test-runs/?test_instance_id=35764397&ordering=-end&end_db=365"
+```
+
+预期结果：
+
+```text
+输出 detail_response_status
+输出 detail_body_text_sample
+输出 log_link_count
+输出 log_links
+如果 detail 页找到 Test Logs 链接，会继续尝试解析 selected_log_url
 ```
 
 ## 常见失败模式

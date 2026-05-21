@@ -60,6 +60,8 @@ Follow-up validation at `2026-05-21 15:05` confirmed that HTTPS fails with `ERR_
 
 Follow-up validation at `2026-05-21 15:10` confirmed the short response is `404 Not Found` from nginx. The internal log host is reachable, but `http://10.70.226.9/logs/Auto/...` is not a valid HTTP path. The command now continues after HTTP 4xx responses and tries a `/logs`-prefix-stripped candidate such as `http://10.70.226.9/Auto/...`.
 
+Follow-up validation at `2026-05-21 15:18` confirmed that direct access to all generated log URL candidates still fails. The next approach is to open the Reporting Portal `report_detail_url`, inspect the detail page, find the actual `Test Logs` / `log.html` link from there, and then run the log extractor.
+
 ```text
 deploy/server_runtime_setup.md
 ```
@@ -89,6 +91,13 @@ extract-log-url
 -> extract failed case evidence
 -> classify evidence with first-pass rules
 -> JSON output
+
+extract-detail-log
+-> open Reporting Portal detail URL
+-> collect Test Logs/log.html links from the detail page
+-> try the selected log link with URL fallback
+-> extract failed case evidence if the log page is reachable
+-> JSON output
 ```
 
 ## Key Fields
@@ -113,6 +122,10 @@ response_status
 response_content_type
 body_text_sample
 navigation_errors
+detail_url
+detail_body_text_sample
+log_links
+selected_log_url
 ```
 
 ## Server-Side Validation Commands
@@ -214,6 +227,12 @@ response_status = 404 and body_text_sample contains nginx
 ```
 
 The internal log host is reachable but the path is wrong for that protocol. `extract-log-url` now retries a candidate URL without the `/logs` prefix.
+
+```text
+all direct log URL candidates fail
+```
+
+Use `extract-detail-log` with the `report_detail_url` from the triage row to inspect the Reporting Portal detail page and find the actual Test Logs link.
 
 ## Review Questions
 

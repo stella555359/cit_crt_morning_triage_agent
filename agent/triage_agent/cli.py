@@ -172,6 +172,20 @@ def _read_log_body_with_fallback(
     return None, None, errors
 
 
+def _extract_log_links_from_current_page(page: Any) -> list[dict[str, str]]:
+    return page.locator("a").evaluate_all(
+        """elements => elements.map((element, index) => ({
+            index: String(index),
+            text: (element.innerText || element.textContent || '').trim(),
+            href: element.href || element.getAttribute('href') || ''
+        })).filter(link => link.href && (
+            link.href.toLowerCase().includes('log.html')
+            || link.text.toLowerCase().includes('test logs')
+            || link.text.toLowerCase().includes('logs')
+        ))"""
+    )
+
+
 def command_extract_log_url(args: argparse.Namespace) -> None:
     try:
         from playwright.sync_api import sync_playwright
@@ -217,6 +231,89 @@ def command_extract_log_url(args: argparse.Namespace) -> None:
             "url": args.url,
             "status": "ok",
             **(diagnostics or {}),
+            "navigation_errors": errors,
+            "body_text_length": len(body_text),
+            "body_text_sample": body_text[: args.sample_chars],
+            "failed_case_count": len(extract_failed_cases_from_text(body_text)),
+            "failed_cases": _failed_case_payload(body_text),
+        }
+    )
+
+
+def command_extract_detail_log(args: argparse.Namespace) -> None:
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError as exc:
+        raise RuntimeError(
+            "Playwright is required for extract-detail-log. "
+            "Install it with `python -m pip install -r requirements.txt` and `python -m playwright install chromium`."
+        ) from exc
+
+    config = load_config(args.config)
+    timeout_ms = args.timeout_seconds * 1000
+
+    with sync_playwright() as playwright:
+        context = playwright.chromium.launch_persistent_context(
+            config.portal.profile_dir,
+            headless=not args.headed,
+            ignore_https_errors=True,
+            viewport={"width": 1800, "height": 1200},
+        )
+        try:
+            detail_page = context.new_page()
+            response = detail_page.goto(args.url, wait_until="domcontentloaded", timeout=timeout_ms)
+            detail_page.wait_for_timeout(args.wait_seconds * 1000)
+            detail_body_text = detail_page.locator("body").inner_text(timeout=timeout_ms)
+            log_links = _extract_log_links_from_current_page(detail_page)
+            detail_diagnostics = {
+                "detail_url": args.url,
+                "detail_final_url": detail_page.url,
+                "detail_title": detail_page.title(),
+                "detail_response_status": response.status if response else None,
+                "detail_body_text_length": len(detail_body_text),
+                "detail_body_text_sample": detail_body_text[: args.sample_chars],
+                "log_link_count": len(log_links),
+                "log_links": log_links[: args.max_links],
+            }
+            detail_page.close()
+
+            if not log_links:
+                _print_json(
+                    {
+                        "status": "no_log_link_found",
+                        **detail_diagnostics,
+                    }
+                )
+                return
+
+            log_url = log_links[0]["href"]
+            body_text, log_diagnostics, errors = _read_log_body_with_fallback(
+                context,
+                log_url,
+                timeout_ms=timeout_ms,
+                wait_seconds=args.wait_seconds,
+                allow_http_fallback=not args.no_http_fallback,
+            )
+        finally:
+            context.close()
+
+    if body_text is None:
+        _print_json(
+            {
+                "status": "log_navigation_failed",
+                **detail_diagnostics,
+                "selected_log_url": log_url,
+                "errors": errors,
+            }
+        )
+        return
+
+    _print_json(
+        {
+            "status": "ok",
+            **detail_diagnostics,
+            "selected_log_url": log_url,
+            **(log_diagnostics or {}),
             "navigation_errors": errors,
             "body_text_length": len(body_text),
             "body_text_sample": body_text[: args.sample_chars],
@@ -368,6 +465,43 @@ def build_parser() -> argparse.ArgumentParser:
         help="Disable automatic https to http fallback for internal log URLs.",
     )
     extract_url_parser.set_defaults(func=command_extract_log_url)
+
+    detail_log_parser = subparsers.add_parser(
+        "extract-detail-log",
+        help="Open a Reporting Portal detail URL, find Test Logs link, and extract failed case evidence.",
+    )
+    detail_log_parser.add_argument("--url", required=True, help="Reporting Portal detail URL.")
+    detail_log_parser.add_argument(
+        "--timeout-seconds",
+        type=int,
+        default=60,
+        help="Navigation and locator timeout. Defaults to 60.",
+    )
+    detail_log_parser.add_argument(
+        "--wait-seconds",
+        type=int,
+        default=10,
+        help="Extra wait after domcontentloaded before reading page text. Defaults to 10.",
+    )
+    detail_log_parser.add_argument(
+        "--sample-chars",
+        type=int,
+        default=500,
+        help="Number of body text characters to include for debugging. Defaults to 500.",
+    )
+    detail_log_parser.add_argument(
+        "--max-links",
+        type=int,
+        default=20,
+        help="Maximum log-like links to print from the detail page. Defaults to 20.",
+    )
+    detail_log_parser.add_argument("--headed", action="store_true", help="Run Chromium in headed mode.")
+    detail_log_parser.add_argument(
+        "--no-http-fallback",
+        action="store_true",
+        help="Disable automatic URL fallbacks for internal log URLs.",
+    )
+    detail_log_parser.set_defaults(func=command_extract_detail_log)
 
     collect_parser = subparsers.add_parser(
         "collect-links",
