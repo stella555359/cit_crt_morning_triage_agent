@@ -62,6 +62,8 @@ Follow-up validation at `2026-05-21 15:10` confirmed the short response is `404 
 
 Follow-up validation at `2026-05-21 15:18` confirmed that direct access to all generated log URL candidates still fails. The next approach is to open the Reporting Portal `report_detail_url`, inspect the detail page, find the actual `Test Logs` / `log.html` link from there, and then run the log extractor.
 
+Follow-up validation at `2026-05-21 15:22` confirmed the detail page is accessible and contains 23 Test Logs links, but those links still point to the same unreachable internal log URLs. `extract-detail-log` now tries to click the first Test Logs link from the detail page when direct URL navigation fails, to test whether browser click behavior, Referer, or popup handling changes access.
+
 ```text
 deploy/server_runtime_setup.md
 ```
@@ -96,6 +98,7 @@ extract-detail-log
 -> open Reporting Portal detail URL
 -> collect Test Logs/log.html links from the detail page
 -> try the selected log link with URL fallback
+-> if direct navigation fails, click the Test Logs link from the detail page
 -> extract failed case evidence if the log page is reachable
 -> JSON output
 ```
@@ -126,6 +129,11 @@ detail_url
 detail_body_text_sample
 log_links
 selected_log_url
+click_fallback_used
+click_final_url
+click_title
+click_opened_new_page
+click_error
 ```
 
 ## Server-Side Validation Commands
@@ -233,6 +241,12 @@ all direct log URL candidates fail
 ```
 
 Use `extract-detail-log` with the `report_detail_url` from the triage row to inspect the Reporting Portal detail page and find the actual Test Logs link.
+
+```text
+detail page contains Test Logs links, but all direct candidates fail
+```
+
+The command now clicks the first Test Logs link in the detail page as a final fallback.
 
 ## Review Questions
 

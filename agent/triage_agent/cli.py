@@ -186,6 +186,35 @@ def _extract_log_links_from_current_page(page: Any) -> list[dict[str, str]]:
     )
 
 
+def _read_log_by_clicking_link(
+    page: Any,
+    link_index: str,
+    *,
+    timeout_ms: int,
+    wait_seconds: int,
+) -> tuple[str | None, dict[str, Any] | None, str | None]:
+    selector = f"a >> nth={int(link_index)}"
+    before_pages = set(page.context.pages)
+
+    try:
+        page.locator("a").nth(int(link_index)).click(timeout=timeout_ms)
+        page.wait_for_timeout(wait_seconds * 1000)
+        after_pages = set(page.context.pages)
+        new_pages = [candidate for candidate in after_pages if candidate not in before_pages]
+        log_page = new_pages[-1] if new_pages else page
+        log_page.wait_for_load_state("domcontentloaded", timeout=timeout_ms)
+        body_text = log_page.locator("body").inner_text(timeout=timeout_ms)
+        diagnostics = {
+            "click_selector": selector,
+            "click_final_url": log_page.url,
+            "click_title": log_page.title(),
+            "click_opened_new_page": bool(new_pages),
+        }
+        return body_text, diagnostics, None
+    except Exception as exc:
+        return None, None, str(exc)
+
+
 def command_extract_log_url(args: argparse.Namespace) -> None:
     try:
         from playwright.sync_api import sync_playwright
@@ -275,8 +304,6 @@ def command_extract_detail_log(args: argparse.Namespace) -> None:
                 "log_link_count": len(log_links),
                 "log_links": log_links[: args.max_links],
             }
-            detail_page.close()
-
             if not log_links:
                 _print_json(
                     {
@@ -294,6 +321,21 @@ def command_extract_detail_log(args: argparse.Namespace) -> None:
                 wait_seconds=args.wait_seconds,
                 allow_http_fallback=not args.no_http_fallback,
             )
+            click_body_text = None
+            click_diagnostics = None
+            click_error = None
+            if body_text is None and not args.no_click_fallback:
+                click_body_text, click_diagnostics, click_error = _read_log_by_clicking_link(
+                    detail_page,
+                    log_links[0]["index"],
+                    timeout_ms=timeout_ms,
+                    wait_seconds=args.wait_seconds,
+                )
+                if click_body_text is not None:
+                    body_text = click_body_text
+                    log_diagnostics = click_diagnostics
+
+            detail_page.close()
         finally:
             context.close()
 
@@ -304,6 +346,7 @@ def command_extract_detail_log(args: argparse.Namespace) -> None:
                 **detail_diagnostics,
                 "selected_log_url": log_url,
                 "errors": errors,
+                "click_error": click_error,
             }
         )
         return
@@ -315,6 +358,8 @@ def command_extract_detail_log(args: argparse.Namespace) -> None:
             "selected_log_url": log_url,
             **(log_diagnostics or {}),
             "navigation_errors": errors,
+            "click_fallback_used": click_body_text is not None,
+            "click_error": click_error,
             "body_text_length": len(body_text),
             "body_text_sample": body_text[: args.sample_chars],
             "failed_case_count": len(extract_failed_cases_from_text(body_text)),
@@ -500,6 +545,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-http-fallback",
         action="store_true",
         help="Disable automatic URL fallbacks for internal log URLs.",
+    )
+    detail_log_parser.add_argument(
+        "--no-click-fallback",
+        action="store_true",
+        help="Disable clicking the Test Logs link when direct log URL navigation fails.",
     )
     detail_log_parser.set_defaults(func=command_extract_detail_log)
 
