@@ -89,7 +89,7 @@ class TestRunLink:
 class TestRunRowLinks:
     log_url: str
     report_detail_url: str | None = None
-    report_hash: str | None = None
+    test_instance_id: str | None = None
 
 
 @dataclass(frozen=True)
