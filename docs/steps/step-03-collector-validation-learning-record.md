@@ -54,6 +54,8 @@ Adds `--max-rows` for `collect-links`, so server validation can inspect a small 
 
 Adds `extract-log-url`, so the next validation can open a triage row's `log_url` directly with Playwright and run the `log.html` failed case extractor without manually saving the HTML file.
 
+The first validation hit `Page.goto: net::ERR_CONNECTION_CLOSED` on the internal HTTPS log URL. The command now retries with `http://` automatically and returns structured `navigation_failed` output if both attempts fail.
+
 ```text
 deploy/server_runtime_setup.md
 ```
@@ -77,6 +79,7 @@ collect-links
 
 extract-log-url
 -> open log.html URL with Playwright
+-> if HTTPS internal log URL is closed, retry with HTTP
 -> wait for Robot log text
 -> extract failed case evidence
 -> classify evidence with first-pass rules
@@ -99,6 +102,8 @@ build
 run_type
 failed_case_count
 failed_cases
+effective_url
+navigation_errors
 ```
 
 ## Server-Side Validation Commands
@@ -182,6 +187,12 @@ extract-log-url returns failed_case_count = 0
 ```
 
 This means the first `log.html` text parser did not match the real Robot log layout. Capture `body_text_length` and a sanitized excerpt around the failed case, then adjust the parser to the actual page text.
+
+```text
+Page.goto: net::ERR_CONNECTION_CLOSED
+```
+
+This may happen when the internal log server closes HTTPS connections. `extract-log-url` now automatically retries with HTTP and reports attempted URL errors in JSON.
 
 ## Review Questions
 

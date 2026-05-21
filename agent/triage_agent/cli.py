@@ -7,6 +7,7 @@ from datetime import date
 from enum import Enum
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse, urlunparse
 
 from .classifier import classify_failed_case
 from .config import DEFAULT_CONFIG_PATH, load_config
@@ -96,6 +97,43 @@ def _failed_case_payload(log_text: str) -> list[dict[str, Any]]:
     ]
 
 
+def _http_fallback_url(url: str) -> str | None:
+    parsed = urlparse(url)
+    if parsed.scheme != "https":
+        return None
+    return urlunparse(parsed._replace(scheme="http"))
+
+
+def _read_log_body_with_fallback(
+    context: Any,
+    url: str,
+    *,
+    timeout_ms: int,
+    wait_seconds: int,
+    allow_http_fallback: bool,
+) -> tuple[str | None, str | None, list[dict[str, str]]]:
+    attempted_urls = [url]
+    fallback_url = _http_fallback_url(url) if allow_http_fallback else None
+    if fallback_url:
+        attempted_urls.append(fallback_url)
+
+    errors: list[dict[str, str]] = []
+
+    for candidate_url in attempted_urls:
+        page = context.new_page()
+        try:
+            page.goto(candidate_url, wait_until="domcontentloaded", timeout=timeout_ms)
+            page.wait_for_timeout(wait_seconds * 1000)
+            body_text = page.locator("body").inner_text(timeout=timeout_ms)
+            page.close()
+            return body_text, candidate_url, errors
+        except Exception as exc:  # Playwright rewrites network failures into library-specific errors.
+            errors.append({"url": candidate_url, "error": str(exc)})
+            page.close()
+
+    return None, None, errors
+
+
 def command_extract_log_url(args: argparse.Namespace) -> None:
     try:
         from playwright.sync_api import sync_playwright
@@ -116,17 +154,32 @@ def command_extract_log_url(args: argparse.Namespace) -> None:
             viewport={"width": 1800, "height": 1200},
         )
         try:
-            page = context.new_page()
-            page.goto(args.url, wait_until="domcontentloaded", timeout=timeout_ms)
-            page.wait_for_timeout(args.wait_seconds * 1000)
-            body_text = page.locator("body").inner_text(timeout=timeout_ms)
-            page.close()
+            body_text, effective_url, errors = _read_log_body_with_fallback(
+                context,
+                args.url,
+                timeout_ms=timeout_ms,
+                wait_seconds=args.wait_seconds,
+                allow_http_fallback=not args.no_http_fallback,
+            )
         finally:
             context.close()
+
+    if body_text is None:
+        _print_json(
+            {
+                "url": args.url,
+                "status": "navigation_failed",
+                "errors": errors,
+            }
+        )
+        return
 
     _print_json(
         {
             "url": args.url,
+            "effective_url": effective_url,
+            "status": "ok",
+            "navigation_errors": errors,
             "body_text_length": len(body_text),
             "failed_case_count": len(extract_failed_cases_from_text(body_text)),
             "failed_cases": _failed_case_payload(body_text),
@@ -264,6 +317,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Extra wait after domcontentloaded before reading body text. Defaults to 10.",
     )
     extract_url_parser.add_argument("--headed", action="store_true", help="Run Chromium in headed mode.")
+    extract_url_parser.add_argument(
+        "--no-http-fallback",
+        action="store_true",
+        help="Disable automatic https to http fallback for internal log URLs.",
+    )
     extract_url_parser.set_defaults(func=command_extract_log_url)
 
     collect_parser = subparsers.add_parser(

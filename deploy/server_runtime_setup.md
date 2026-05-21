@@ -295,9 +295,13 @@ PYTHONPATH=agent python -m triage_agent extract-log-url \
   --url "https://10.70.226.9/logs/Auto/SBTS00/SBTS00_ENB_9999_260520_000007/348/CIT/VRF_HAZ_T06/7_5_UTE5G402T820/artifact/quicktest/retry-1/ca_cases/log.html"
 ```
 
+如果内部日志服务器的 HTTPS 连接被关闭，命令会自动尝试把 URL 从 `https://` 改成 `http://` 再访问。
+
 预期结果：
 
 ```text
+status = ok
+输出 effective_url
 输出 body_text_length
 输出 failed_case_count
 输出 failed_cases
@@ -324,6 +328,29 @@ Robot log 未完全加载
 PYTHONPATH=agent python -m triage_agent extract-log-url \
   --wait-seconds 20 \
   --url "https://10.70.226.9/logs/Auto/SBTS00/SBTS00_ENB_9999_260520_000007/348/CIT/VRF_HAZ_T06/7_5_UTE5G402T820/artifact/quicktest/retry-1/ca_cases/log.html"
+```
+
+如果需要临时禁用 `https -> http` fallback：
+
+```bash
+PYTHONPATH=agent python -m triage_agent extract-log-url \
+  --no-http-fallback \
+  --url "https://10.70.226.9/logs/Auto/SBTS00/SBTS00_ENB_9999_260520_000007/348/CIT/VRF_HAZ_T06/7_5_UTE5G402T820/artifact/quicktest/retry-1/ca_cases/log.html"
+```
+
+### 内部 log.html HTTPS 连接被关闭
+
+现象：
+
+```text
+Page.goto: net::ERR_CONNECTION_CLOSED
+```
+
+处理：
+
+```text
+extract-log-url 会自动从 https:// fallback 到 http://。
+如果 fallback 后仍失败，会输出 status=navigation_failed 和 errors，而不是 Python traceback。
 ```
 
 ## 常见失败模式
