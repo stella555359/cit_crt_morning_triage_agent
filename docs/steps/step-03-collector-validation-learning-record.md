@@ -26,6 +26,8 @@ Follow-up validation at `2026-05-21 14:47` confirmed that `row_index`, `row_text
 
 Follow-up validation at `2026-05-21 14:53` confirmed that `--triage-only` works for `cit_7_5_UTE5G402T273` on report date `2026-05-21`: the raw page has 37 rows, the CIT morning window is `2026-05-20 22:00 ~ 2026-05-21 09:00`, and the filtered triage row count is 0. This means the collector ran successfully and this scope had no `not analyzed` rows in that window.
 
+Follow-up validation at `2026-05-21 14:56` confirmed that scanning all 6 scopes works. `cit_7_5_UTE5G402T820` returned 2 triage rows in the CIT morning window. Both rows are `CB007949_B_B4_01_Scell_Change_From_T_3F_To_3` with `result=not analyzed`, `origin_result=failed`, `build=SBTS00_ENB_9999_260520_000007`, and `run_type=CIT`.
+
 ## Files Changed And Why
 
 ```text
@@ -50,6 +52,8 @@ agent/triage_agent/cli.py
 
 Adds `--max-rows` for `collect-links`, so server validation can inspect a small sample without printing the full table output.
 
+Adds `extract-log-url`, so the next validation can open a triage row's `log_url` directly with Playwright and run the `log.html` failed case extractor without manually saving the HTML file.
+
 ```text
 deploy/server_runtime_setup.md
 ```
@@ -70,6 +74,13 @@ collect-links
 -> optionally filter by time window and not analyzed status
 -> deduplicate by log_url + test_instance_id/detail_url
 -> JSON output
+
+extract-log-url
+-> open log.html URL with Playwright
+-> wait for Robot log text
+-> extract failed case evidence
+-> classify evidence with first-pass rules
+-> JSON output
 ```
 
 ## Key Fields
@@ -86,6 +97,8 @@ result
 origin_result
 build
 run_type
+failed_case_count
+failed_cases
 ```
 
 ## Server-Side Validation Commands
@@ -113,6 +126,13 @@ For focused triage filtering:
 PYTHONPATH=agent python -m triage_agent collect-links --scope cit_7_5_UTE5G402T273 --triage-only --report-date 2026-05-21 --max-rows 5
 ```
 
+For the first log parser validation:
+
+```bash
+PYTHONPATH=agent python -m triage_agent extract-log-url \
+  --url "https://10.70.226.9/logs/Auto/SBTS00/SBTS00_ENB_9999_260520_000007/348/CIT/VRF_HAZ_T06/7_5_UTE5G402T820/artifact/quicktest/retry-1/ca_cases/log.html"
+```
+
 Expected result:
 
 ```text
@@ -134,6 +154,13 @@ session_status: ok
 raw_row_count: 37
 row_count: 0
 meaning: no not analyzed rows in the configured morning window for this scope
+2026-05-21 14:56
+command: collect-links --triage-only --report-date 2026-05-21 --max-rows 5
+session_status: ok
+scope with triage rows: cit_7_5_UTE5G402T820
+raw_row_count: 35
+row_count: 2
+robotcase: CB007949_B_B4_01_Scell_Change_From_T_3F_To_3
 ```
 
 Common failure modes:
@@ -150,6 +177,12 @@ rows contain log_url but test_instance_id is null
 
 This means the detail link is not present in the same `.ag-row` DOM node. The next fix should inspect row DOM or use Reporting Portal network responses.
 
+```text
+extract-log-url returns failed_case_count = 0
+```
+
+This means the first `log.html` text parser did not match the real Robot log layout. Capture `body_text_length` and a sanitized excerpt around the failed case, then adjust the parser to the actual page text.
+
 ## Review Questions
 
 - Does the updated output replace `report_hash` with `test_instance_id`?
@@ -157,3 +190,4 @@ This means the detail link is not present in the same `.ag-row` DOM node. The ne
 - For a visible row in Reporting Portal, does the emitted `test_instance_id` match the row detail link?
 - Do we need to extract row text fields next, such as result status, origin result, build, and case name?
 - Does `--triage-only` return only yellow not analyzed rows for the target morning window?
+- Does `extract-log-url` extract the failed case message and failed keyword from the first real triage row?

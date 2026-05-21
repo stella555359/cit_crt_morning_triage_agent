@@ -85,6 +85,55 @@ def command_extract_log(args: argparse.Namespace) -> None:
     _print_json(payload)
 
 
+def _failed_case_payload(log_text: str) -> list[dict[str, Any]]:
+    failed_cases = extract_failed_cases_from_text(log_text)
+    return [
+        {
+            "evidence": asdict(failed_case),
+            "classification": asdict(classify_failed_case(failed_case)),
+        }
+        for failed_case in failed_cases
+    ]
+
+
+def command_extract_log_url(args: argparse.Namespace) -> None:
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError as exc:
+        raise RuntimeError(
+            "Playwright is required for extract-log-url. "
+            "Install it with `python -m pip install -r requirements.txt` and `python -m playwright install chromium`."
+        ) from exc
+
+    config = load_config(args.config)
+    timeout_ms = args.timeout_seconds * 1000
+
+    with sync_playwright() as playwright:
+        context = playwright.chromium.launch_persistent_context(
+            config.portal.profile_dir,
+            headless=not args.headed,
+            ignore_https_errors=True,
+            viewport={"width": 1800, "height": 1200},
+        )
+        try:
+            page = context.new_page()
+            page.goto(args.url, wait_until="domcontentloaded", timeout=timeout_ms)
+            page.wait_for_timeout(args.wait_seconds * 1000)
+            body_text = page.locator("body").inner_text(timeout=timeout_ms)
+            page.close()
+        finally:
+            context.close()
+
+    _print_json(
+        {
+            "url": args.url,
+            "body_text_length": len(body_text),
+            "failed_case_count": len(extract_failed_cases_from_text(body_text)),
+            "failed_cases": _failed_case_payload(body_text),
+        }
+    )
+
+
 def command_collect_links(args: argparse.Namespace) -> None:
     try:
         from playwright.sync_api import sync_playwright
@@ -196,6 +245,26 @@ def build_parser() -> argparse.ArgumentParser:
     extract_parser.add_argument("--file", required=True, help="Path to a saved log.html text or HTML file.")
     extract_parser.add_argument("--encoding", default="utf-8", help="File encoding. Defaults to utf-8.")
     extract_parser.set_defaults(func=command_extract_log)
+
+    extract_url_parser = subparsers.add_parser(
+        "extract-log-url",
+        help="Open a log.html URL with Playwright and extract failed case evidence.",
+    )
+    extract_url_parser.add_argument("--url", required=True, help="log.html URL.")
+    extract_url_parser.add_argument(
+        "--timeout-seconds",
+        type=int,
+        default=60,
+        help="Navigation and locator timeout. Defaults to 60.",
+    )
+    extract_url_parser.add_argument(
+        "--wait-seconds",
+        type=int,
+        default=10,
+        help="Extra wait after domcontentloaded before reading body text. Defaults to 10.",
+    )
+    extract_url_parser.add_argument("--headed", action="store_true", help="Run Chromium in headed mode.")
+    extract_url_parser.set_defaults(func=command_extract_log_url)
 
     collect_parser = subparsers.add_parser(
         "collect-links",

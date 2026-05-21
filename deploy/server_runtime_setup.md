@@ -279,6 +279,51 @@ collect-links row_text 验证：row_index、row_text、test_instance_id、log_ur
 2026-05-21 14:53
 collect-links --triage-only 验证：session_status=ok，raw_row_count=37，window=2026-05-20 22:00 ~ 2026-05-21 09:00，row_count=0
 结论：collector 运行正常，该 scope 在指定 Morning window 内没有 not analyzed 待分析行
+2026-05-21 14:56
+collect-links --triage-only 全部 6 个 scope 验证：session_status=ok，其中 cit_7_5_UTE5G402T820 raw_row_count=35，row_count=2
+待分析结果：CB007949_B_B4_01_Scell_Change_From_T_3F_To_3，result=not analyzed，origin_result=failed，build=SBTS00_ENB_9999_260520_000007，run_type=CIT
+```
+
+### 验证单个 log.html 解析
+
+当 `collect-links --triage-only` 找到 `row_count > 0` 的结果后，可以拿其中一条 `log_url` 验证 `log.html` 解析。
+
+示例：
+
+```bash
+PYTHONPATH=agent python -m triage_agent extract-log-url \
+  --url "https://10.70.226.9/logs/Auto/SBTS00/SBTS00_ENB_9999_260520_000007/348/CIT/VRF_HAZ_T06/7_5_UTE5G402T820/artifact/quicktest/retry-1/ca_cases/log.html"
+```
+
+预期结果：
+
+```text
+输出 body_text_length
+输出 failed_case_count
+输出 failed_cases
+每个 failed case 包含 evidence 和 classification
+```
+
+常见失败模式：
+
+```text
+failed_case_count = 0
+```
+
+可能原因：
+
+```text
+log.html 页面文本结构和第一版 parser 假设不一致
+Robot log 未完全加载
+失败信息在动态脚本中，需要增加等待时间或改用 DOM/JS 数据解析
+```
+
+可加长等待时间：
+
+```bash
+PYTHONPATH=agent python -m triage_agent extract-log-url \
+  --wait-seconds 20 \
+  --url "https://10.70.226.9/logs/Auto/SBTS00/SBTS00_ENB_9999_260520_000007/348/CIT/VRF_HAZ_T06/7_5_UTE5G402T820/artifact/quicktest/retry-1/ca_cases/log.html"
 ```
 
 ## 常见失败模式
