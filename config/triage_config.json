@@ -1,0 +1,53 @@
+{
+  "portal": {
+    "base_url": "https://rep-portal.ext.net.nokia.com/reports/test-runs/",
+    "org": "VRF_HAZ_T06",
+    "limit": 100,
+    "profile_dir": "/home/ute/reporting-portal-profile",
+    "health_timeout_seconds": 30
+  },
+  "time_rules": {
+    "timezone": "Asia/Shanghai",
+    "cit": {
+      "start_time": "22:00",
+      "end_time": "09:00"
+    },
+    "crt": {
+      "anchor_fb": "FB2611",
+      "anchor_start_date": "2026-05-20",
+      "duration_days": 14
+    }
+  },
+  "scopes": [
+    {
+      "name": "cit_7_5_UTE5G402T273",
+      "regression_status": "CIT",
+      "testline": "7_5_UTE5G402T273"
+    },
+    {
+      "name": "crt_7_5_UTE5G402T273",
+      "regression_status": "CRT",
+      "testline": "7_5_UTE5G402T273"
+    },
+    {
+      "name": "cit_7_5_UTE5G402T272",
+      "regression_status": "CIT",
+      "testline": "7_5_UTE5G402T272"
+    },
+    {
+      "name": "crt_7_5_UTE5G402T272",
+      "regression_status": "CRT",
+      "testline": "7_5_UTE5G402T272"
+    },
+    {
+      "name": "cit_7_5_UTE5G402T820",
+      "regression_status": "CIT",
+      "testline": "7_5_UTE5G402T820"
+    },
+    {
+      "name": "crt_7_5_UTE5G402T820",
+      "regression_status": "CRT",
+      "testline": "7_5_UTE5G402T820"
+    }
+  ]
+}

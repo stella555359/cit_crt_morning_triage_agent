@@ -1,0 +1,115 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import datetime
+from enum import Enum
+from typing import Any
+
+
+class RegressionStatus(str, Enum):
+    CIT = "CIT"
+    CRT = "CRT"
+
+
+class PortalSessionStatus(str, Enum):
+    OK = "ok"
+    EXPIRED = "expired"
+    UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True)
+class PortalConfig:
+    base_url: str
+    org: str
+    limit: int
+    profile_dir: str
+    health_timeout_seconds: int = 30
+
+
+@dataclass(frozen=True)
+class CitTimeRule:
+    start_time: str
+    end_time: str
+
+
+@dataclass(frozen=True)
+class CrtTimeRule:
+    anchor_fb: str
+    anchor_start_date: str
+    duration_days: int
+
+
+@dataclass(frozen=True)
+class TimeRules:
+    timezone: str
+    cit: CitTimeRule
+    crt: CrtTimeRule
+
+
+@dataclass(frozen=True)
+class ScopeConfig:
+    name: str
+    regression_status: RegressionStatus
+    testline: str
+
+
+@dataclass(frozen=True)
+class AgentConfig:
+    portal: PortalConfig
+    time_rules: TimeRules
+    scopes: list[ScopeConfig]
+
+
+@dataclass(frozen=True)
+class TimeWindow:
+    name: str
+    start: datetime
+    end: datetime
+    display_label: str
+
+
+@dataclass(frozen=True)
+class PortalHealthResult:
+    status: PortalSessionStatus
+    url: str
+    checked_at: datetime
+    body_text_length: int
+    console_messages: list[str] = field(default_factory=list)
+    reason: str | None = None
+
+
+@dataclass(frozen=True)
+class TestRunLink:
+    text: str
+    href: str
+    index: int
+
+
+@dataclass(frozen=True)
+class TestRunRowLinks:
+    log_url: str
+    report_detail_url: str | None = None
+    report_hash: str | None = None
+
+
+@dataclass(frozen=True)
+class FailedCaseEvidence:
+    full_name: str | None
+    tags: list[str]
+    status: str | None
+    case_message: str | None
+    failed_keyword: str | None
+    failure_text: str | None
+    keyword_chain: list[str]
+    raw_excerpt: str
+
+
+@dataclass(frozen=True)
+class ClassificationResult:
+    category: str
+    confidence: str
+    evidence: list[str]
+    suggested_action: str
+
+
+JsonDict = dict[str, Any]
