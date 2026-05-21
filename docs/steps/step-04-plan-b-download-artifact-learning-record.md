@@ -113,6 +113,15 @@ download_results.status = failed
 
 The candidate was visible but did not trigger a browser download. Review the candidate text/href and try headed mode to observe the UI.
 
+Validated result at `2026-05-21 16:27`:
+
+```text
+--attempt-download clicked Test Logs links
+all attempts timed out while waiting for download
+```
+
+This happened because the first download-candidate rule was too broad: `log.html` URLs contain the path segment `artifact`, so they were mistaken for artifact downloads. The rule now excludes candidates whose text contains `Test Logs` or whose href contains `log.html`.
+
 ## Review Questions
 
 - Does the detail page expose any zip/download/artifact/output candidates?

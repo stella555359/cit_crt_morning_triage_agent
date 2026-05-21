@@ -556,6 +556,16 @@ status = session_expired
 
 如果 `download_candidate_count = 0`，说明当前 detail 页面 DOM 中没有直接可见的 zip/download/artifact 入口。下一步需要检查网络请求或 Reporting Portal 是否有隐藏接口。
 
+已验证结果：
+
+```text
+2026-05-21 16:27
+inspect-detail-assets --attempt-download 点击到的是 Test Logs 链接，不是真正的下载按钮
+download_results 中 3 个 Test Logs 链接均等待 download 事件超时
+原因：第一版 download_candidate 规则过宽，href 中包含 artifact 的 log.html 链接被误判为下载候选
+后续修正：download_candidate 排除 text=Test Logs 或 href 包含 log.html 的候选项
+```
+
 ## 常见失败模式
 
 ### venv 没有激活

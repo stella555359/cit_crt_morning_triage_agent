@@ -233,6 +233,11 @@ def _matches_keywords(item: dict[str, str], keywords: tuple[str, ...]) -> bool:
     return any(keyword in blob for keyword in keywords)
 
 
+def _is_log_page_candidate(item: dict[str, str]) -> bool:
+    blob = _candidate_blob(item)
+    return "test logs" in blob or "log.html" in blob
+
+
 def _extract_clickable_assets(page: Any) -> dict[str, list[dict[str, str]]]:
     return page.evaluate(
         """() => {
@@ -262,7 +267,11 @@ def _asset_summary(page: Any, max_items: int) -> dict[str, Any]:
     assets = _extract_clickable_assets(page)
     all_items = assets["links"] + assets["buttons"]
     candidates = [item for item in all_items if _matches_keywords(item, ASSET_CANDIDATE_KEYWORDS)]
-    download_candidates = [item for item in candidates if _matches_keywords(item, DOWNLOAD_CANDIDATE_KEYWORDS)]
+    download_candidates = [
+        item
+        for item in candidates
+        if _matches_keywords(item, DOWNLOAD_CANDIDATE_KEYWORDS) and not _is_log_page_candidate(item)
+    ]
 
     return {
         "link_count": len(assets["links"]),
