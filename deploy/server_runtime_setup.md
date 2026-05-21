@@ -276,6 +276,9 @@ collect-links 新版验证：test_instance_id 已输出，但仍有同一 test_i
 2026-05-21 14:47
 collect-links row_text 验证：row_index、row_text、test_instance_id、log_url 已能对应同一行；样例行为 passed/passed 历史数据
 后续修正：从 row_text 解析 robotcase、end_time、result、origin_result、build、run_type，并新增 --triage-only 按时间窗口和 not analyzed 状态过滤
+2026-05-21 14:53
+collect-links --triage-only 验证：session_status=ok，raw_row_count=37，window=2026-05-20 22:00 ~ 2026-05-21 09:00，row_count=0
+结论：collector 运行正常，该 scope 在指定 Morning window 内没有 not analyzed 待分析行
 ```
 
 ## 常见失败模式

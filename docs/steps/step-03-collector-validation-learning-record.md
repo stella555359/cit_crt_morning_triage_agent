@@ -24,6 +24,8 @@ Follow-up validation at `2026-05-21 14:37` confirmed that `test_instance_id` is 
 
 Follow-up validation at `2026-05-21 14:47` confirmed that `row_index`, `row_text`, `test_instance_id`, and `log_url` can now be aligned to the same table row. The sample rows are historical `passed/passed` results, so the next requirement is to parse structured row fields and filter to the target triage set.
 
+Follow-up validation at `2026-05-21 14:53` confirmed that `--triage-only` works for `cit_7_5_UTE5G402T273` on report date `2026-05-21`: the raw page has 37 rows, the CIT morning window is `2026-05-20 22:00 ~ 2026-05-21 09:00`, and the filtered triage row count is 0. This means the collector ran successfully and this scope had no `not analyzed` rows in that window.
+
 ## Files Changed And Why
 
 ```text
@@ -121,6 +123,17 @@ sample rows contain row_index and row_text
 sample rows contain robotcase, end_time, result, origin_result, build, and run_type
 with --triage-only, row_count only includes target-window rows whose result/origin_result is not analyzed
 duplicate rows are reduced compared with the first validation
+```
+
+Validated result:
+
+```text
+2026-05-21 14:53
+command: collect-links --scope cit_7_5_UTE5G402T273 --triage-only --report-date 2026-05-21 --max-rows 5
+session_status: ok
+raw_row_count: 37
+row_count: 0
+meaning: no not analyzed rows in the configured morning window for this scope
 ```
 
 Common failure modes:
